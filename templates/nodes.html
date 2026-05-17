@@ -1,0 +1,435 @@
+{% extends "base.html" %}
+{% block title %}Nodes — Hycroe{% endblock %}
+{% block page_title %}Nodes{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+{% block topbar_extra %}
+<div class="topbar-right">
+    <span id="nodes-refresh-label" style="font-size:11px;color:var(--text-4);font-family:'Geist Mono',monospace;display:flex;align-items:center;gap:5px;">
+        <span class="live-dot"></span>
+        <span id="nodes-refresh-ago">live</span>
+    </span>
+    <button onclick="refreshAllNodes()" id="refresh-all-btn" class="btn btn-ghost btn-sm">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" id="nodes-refresh-icon"><path d="M1 4v6h6M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+        Refresh
+    </button>
+    <button onclick="document.getElementById('add-incus-modal').classList.add('open')" class="btn btn-primary btn-sm">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+        Add Node
+    </button>
+</div>
+{% endblock %}
+{% block content %}
+
+{% if nodes %}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px;margin-bottom:20px;" id="nodes-grid">
+    {% for node in nodes %}
+    <div class="card node-card" id="node-card-{{ node.id }}" style="{% if node.maintenance %}opacity:0.65{% endif %}">
+        <!-- Card header -->
+        <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">
+            <div style="min-width:0;">
+                <div style="display:flex;align-items:center;gap:7px;margin-bottom:4px;flex-wrap:wrap;">
+                    <span class="chip chip-incus">Incus</span>
+                    <span style="font-size:13.5px;font-weight:700;color:var(--text);">{{ node.display_name }}</span>
+                    {% if node.is_default %}<span class="chip chip-incus" style="font-size:9px;padding:1px 6px;border-radius:20px;">default</span>{% endif %}
+                </div>
+                <div class="mono text-muted" style="font-size:11px;word-break:break-all;">{{ node.address }}:{{ node.port }}{% if node.location and node.location != '—' %} &middot; {{ node.location }}{% endif %}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+                <span class="badge badge-{{ node.status }}" id="status-{{ node.id }}"><span class="badge-dot"></span>{{ node.status }}</span>
+            </div>
+        </div>
+
+        <!-- Metrics area -->
+        <div style="padding:14px 16px;" id="metrics-{{ node.id }}">
+            <!-- CPU -->
+            <div style="margin-bottom:12px;">
+                <div style="display:flex;justify-content:space-between;font-size:10.5px;margin-bottom:4px;">
+                    <span class="text-muted">CPU</span>
+                    <span class="mono" id="cpu-label-{{ node.id }}">
+                        <span style="font-weight:600;{% if (node.cpu_load or 0) > 85 %}color:var(--red){% elif (node.cpu_load or 0) > 65 %}color:var(--amber){% else %}color:var(--blue-2){% endif %}">{{ "%.1f"|format(node.cpu_load or 0) }}%</span>
+                        <span style="color:var(--text-3);"> · {{ node.cpu_cores or '?' }} core{{ 's' if (node.cpu_cores or 0) != 1 }}</span>
+                    </span>
+                </div>
+                <div class="bar-track thick">
+                    <div class="bar-fill bar-blue" id="cpu-bar-{{ node.id }}" style="width:{{ [(node.cpu_load or 0)|int,100]|min }}%;transition:width .5s ease;"></div>
+                </div>
+            </div>
+
+            <!-- RAM -->
+            <div style="margin-bottom:12px;">
+                <div style="display:flex;justify-content:space-between;font-size:10.5px;margin-bottom:4px;">
+                    <span class="text-muted">RAM</span>
+                    <span class="mono text-dim" style="font-size:11px;" id="ram-label-{{ node.id }}">
+                        {{ node.ram_used }} / {{ node.ram_total }} MB
+                        <span style="font-weight:600;{% if node.ram_pct > 85 %}color:var(--red){% elif node.ram_pct > 65 %}color:var(--amber){% else %}color:var(--blue-2){% endif %}"> {{ node.ram_pct }}%</span>
+                    </span>
+                </div>
+                <div class="bar-track thick">
+                    <div class="bar-fill {% if node.ram_pct > 85 %}bar-red{% elif node.ram_pct > 65 %}bar-amber{% else %}bar-green{% endif %}" id="ram-bar-{{ node.id }}" style="width:{{ [node.ram_pct,100]|min }}%;transition:width .5s ease;"></div>
+                </div>
+            </div>
+
+            <!-- Disk -->
+            <div style="margin-bottom:14px;">
+                <div style="display:flex;justify-content:space-between;font-size:10.5px;margin-bottom:4px;">
+                    <span class="text-muted">Disk</span>
+                    <span class="mono text-dim" style="font-size:11px;" id="disk-label-{{ node.id }}">
+                        {{ node.disk_used_gb or 0 }} / {{ node.disk_total_gb or '?' }} GB
+                        {% if node.disk_pct > 0 %}
+                        <span style="font-weight:600;{% if node.disk_pct > 85 %}color:var(--red){% elif node.disk_pct > 65 %}color:var(--amber){% else %}color:var(--blue-2){% endif %}"> {{ node.disk_pct }}%</span>
+                        {% endif %}
+                    </span>
+                </div>
+                <div class="bar-track thick">
+                    <div class="bar-fill {% if node.disk_pct > 85 %}bar-red{% elif node.disk_pct > 65 %}bar-amber{% else %}bar-blue{% endif %}" id="disk-bar-{{ node.id }}" style="width:{{ [node.disk_pct,100]|min }}%;transition:width .5s ease;"></div>
+                </div>
+            </div>
+
+            <!-- Instance counter row -->
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">
+                <div style="text-align:center;background:var(--bg-3);border:1px solid var(--border);border-radius:var(--r);padding:9px 6px;">
+                    <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.09em;font-weight:600;margin-bottom:4px;">Running</div>
+                    <div class="mono" style="font-size:16px;font-weight:700;color:var(--green);" id="running-{{ node.id }}">
+                        {{ node.running_count }}
+                    </div>
+                </div>
+                <div style="text-align:center;background:var(--bg-3);border:1px solid var(--border);border-radius:var(--r);padding:9px 6px;">
+                    <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.09em;font-weight:600;margin-bottom:4px;">Total VPS</div>
+                    <div class="mono" style="font-size:16px;font-weight:700;color:var(--text);" id="total-{{ node.id }}">
+                        {{ node.vps_count }}<span style="font-size:11px;color:var(--text-3);font-weight:400;">/{{ node.max_vps }}</span>
+                    </div>
+                </div>
+                <div style="text-align:center;background:var(--bg-3);border:1px solid var(--border);border-radius:var(--r);padding:9px 6px;">
+                    <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.09em;font-weight:600;margin-bottom:4px;">Last Seen</div>
+                    <div class="mono" style="font-size:12px;font-weight:600;color:var(--text-2);">{% if node.last_seen %}{{ node.last_seen.strftime('%H:%M') }}{% else %}—{% endif %}</div>
+                </div>
+            </div>
+
+            <!-- Mini CPU+RAM graphs -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                <div style="background:var(--bg-3);border:1px solid var(--border);border-radius:var(--r);padding:10px;">
+                    <div style="font-size:9.5px;color:var(--text-3);text-transform:uppercase;letter-spacing:.09em;font-weight:600;margin-bottom:6px;">CPU History</div>
+                    <canvas id="cpu-chart-{{ node.id }}" height="50"></canvas>
+                </div>
+                <div style="background:var(--bg-3);border:1px solid var(--border);border-radius:var(--r);padding:10px;">
+                    <div style="font-size:9.5px;color:var(--text-3);text-transform:uppercase;letter-spacing:.09em;font-weight:600;margin-bottom:6px;">RAM History</div>
+                    <canvas id="ram-chart-{{ node.id }}" height="50"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div style="padding:10px 16px;border-top:1px solid rgba(255,255,255,.04);display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+            <button onclick="openEditModal({{ node.id }}, '{{ node.display_name }}', '{{ node.location or '' }}', {{ node.max_vps }}, {{ node.is_default|lower }}, {{ node.maintenance|lower }}, {{ node.ram_total }}, {{ node.cpu_cores }}, {{ node.disk_total_gb }})" class="btn btn-ghost btn-sm">Edit</button>
+            <form method="post" action="/nodes/toggle-maintenance" style="display:inline;">
+                <input type="hidden" name="node_id" value="{{ node.id }}">
+                <button class="btn btn-ghost btn-sm" style="color:var(--amber);border-color:rgba(245,158,11,.2);">
+                    {% if node.maintenance %}Bring Online{% else %}Maintenance{% endif %}
+                </button>
+            </form>
+            <form method="post" action="/nodes/delete" style="display:inline;"
+                  onsubmit="return confirm('Remove {{ node.display_name }}? Existing instances will not be deleted.')">
+                <input type="hidden" name="node_id" value="{{ node.id }}">
+                <button class="btn btn-danger btn-sm">Remove</button>
+            </form>
+            <span style="margin-left:auto;font-size:10.5px;color:var(--text-4);" class="mono">id:{{ node.id }}</span>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% else %}
+<div class="card" style="margin-bottom:20px;">
+    <div class="empty-state">
+        <div class="empty-icon"><svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="var(--text-3)" stroke-width="1.5"><circle cx="5" cy="6" r="2" fill="currentColor" stroke="none"/><circle cx="5" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="5" cy="18" r="2" fill="currentColor" stroke="none"/><path d="M9 6h10M9 12h10M9 18h10"/></svg></div>
+        <div class="empty-title">No nodes configured</div>
+        <div class="empty-desc">Add an Incus node to start deploying instances.</div>
+        <button onclick="document.getElementById('add-incus-modal').classList.add('open')" class="btn btn-primary btn-sm">Add Incus Node</button>
+    </div>
+</div>
+{% endif %}
+
+<!-- Setup guide -->
+<div class="card">
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);"><span class="section-title">Setup Guide</span></div>
+    <div style="padding:16px;">
+        <div>
+            <div style="font-size:11.5px;font-weight:600;color:var(--text-2);margin-bottom:8px;display:flex;align-items:center;gap:6px;"><span class="chip chip-incus">Incus</span> Remote Setup</div>
+            <div class="code-block">
+                <div class="code-comment"># Enable remote API on the node</div>
+                <div class="code-cmd">incus config set core.https_address :8443</div>
+                <div style="margin-top:8px;" class="code-comment"># Trust this panel's certificate (run on panel host)</div>
+                <div class="code-cmd">incus remote add &lt;name&gt; https://&lt;node-ip&gt;:8443 \<br>&nbsp;&nbsp;--accept-certificate</div>
+                <div style="margin-top:8px;" class="code-comment"># Verify connection</div>
+                <div class="code-cmd">incus list &lt;name&gt;:</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Node Modal -->
+<div class="modal-backdrop" id="edit-node-modal" onclick="if(event.target===this)this.classList.remove('open')">
+    <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span class="modal-title">Edit Node</span>
+            <button class="modal-close" onclick="document.getElementById('edit-node-modal').classList.remove('open')"><svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+        </div>
+        <form method="post" id="edit-node-form" action="/nodes/0/edit">
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;">
+                <div class="form-grid form-grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Display Name</label>
+                        <input type="text" name="display_name" id="en-name" class="form-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Location</label>
+                        <input type="text" name="location" id="en-location" class="form-input" placeholder="US-East">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Max Instances</label>
+                    <input type="number" name="max_vps" id="en-maxvps" class="form-input" min="1" value="50">
+                </div>
+                <div style="border-top:1px solid var(--border);padding-top:12px;">
+                    <div style="font-size:11px;color:var(--text-3);font-weight:600;text-transform:uppercase;letter-spacing:.09em;margin-bottom:8px;">Capacity Override <span style="font-weight:400;text-transform:none;letter-spacing:0;">(0 = auto from Incus)</span></div>
+                    <div class="form-grid form-grid-3">
+                        <div class="form-group">
+                            <label class="form-label">Total RAM (MB)</label>
+                            <input type="number" name="ram_total_mb" id="en-ram" class="form-input" min="0" value="0">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">CPU Cores</label>
+                            <input type="number" name="cpu_cores" id="en-cpu" class="form-input" min="0" value="0">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Total Disk (GB)</label>
+                            <input type="number" name="disk_total_gb" id="en-disk" class="form-input" min="0" value="0">
+                        </div>
+                    </div>
+                </div>
+                <div style="display:flex;gap:16px;">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                        <input type="checkbox" name="is_default" id="en-default" value="on" style="width:15px;height:15px;accent-color:var(--blue);">
+                        <span style="font-size:13px;">Set as default node</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                        <input type="checkbox" name="maintenance" id="en-maintenance" value="on" style="width:15px;height:15px;accent-color:var(--amber);">
+                        <span style="font-size:13px;color:var(--amber);">Maintenance mode</span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="document.getElementById('edit-node-modal').classList.remove('open')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Add Incus Node Modal -->
+<div id="add-incus-modal" class="modal-backdrop" onclick="if(event.target===this)this.classList.remove('open')">
+    <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span class="modal-title">Add Incus Node</span>
+            <button class="modal-close" onclick="document.getElementById('add-incus-modal').classList.remove('open')"><svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+        </div>
+        <form method="post" action="/nodes/add">
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;">
+                <input type="hidden" name="node_type" value="incus">
+                <div class="form-grid form-grid-2">
+                    <div class="form-group"><label class="form-label">Display Name</label><input type="text" name="display_name" placeholder="node-01" required class="form-input"></div>
+                    <div class="form-group"><label class="form-label">Internal Name</label><input type="text" name="name" placeholder="node-01" required class="form-input"><div class="form-hint">Lowercase letters, numbers, hyphens</div></div>
+                </div>
+                <div class="form-grid form-grid-2">
+                    <div class="form-group"><label class="form-label">Address</label><input type="text" name="address" placeholder="10.0.0.1" required class="form-input"></div>
+                    <div class="form-group"><label class="form-label">Port</label><input type="number" name="port" value="8443" required class="form-input"></div>
+                </div>
+                <div class="form-grid form-grid-2">
+                    <div class="form-group"><label class="form-label">Incus Remote Name</label><input type="text" name="incus_remote" placeholder="node-01" class="form-input"><div class="form-hint">Leave blank to use node name</div></div>
+                    <div class="form-group"><label class="form-label">Location <span class="text-muted">(optional)</span></label><input type="text" name="location" placeholder="US-East" class="form-input"></div>
+                </div>
+                <div class="form-group"><label class="form-label">Max Instances</label><input type="number" name="max_vps" value="20" min="1" class="form-input"></div>
+                <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:2px;">
+                    <div style="font-size:11px;color:var(--text-3);font-weight:600;text-transform:uppercase;letter-spacing:.09em;margin-bottom:8px;">Capacity (optional — auto-detected from Incus)</div>
+                    <div class="form-grid form-grid-3">
+                        <div class="form-group">
+                            <label class="form-label">Total RAM (MB)</label>
+                            <input type="number" name="ram_total_mb" value="0" min="0" class="form-input" placeholder="e.g. 16384">
+                            <div class="form-hint">0 = auto-detect</div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">CPU Cores</label>
+                            <input type="number" name="cpu_cores" value="0" min="0" class="form-input" placeholder="e.g. 8">
+                            <div class="form-hint">0 = auto-detect</div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Total Disk (GB)</label>
+                            <input type="number" name="disk_total_gb" value="0" min="0" class="form-input" placeholder="e.g. 500">
+                        </div>
+                    </div>
+                </div>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                    <input type="checkbox" name="is_default" value="on" style="width:15px;height:15px;accent-color:var(--blue);">
+                    <span style="font-size:13px;">Set as default node</span>
+                </label>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="document.getElementById('add-incus-modal').classList.remove('open')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Add Node</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+const HISTORY_LEN = 30;
+const nodeIds   = [{% for node in nodes %}{{ node.id }}{% if not loop.last %},{% endif %}{% endfor %}];
+const cpuHistory = {}, ramHistory = {}, cpuCharts = {}, ramCharts = {};
+const themeBlue = getComputedStyle(document.documentElement).getPropertyValue('--blue').trim() || '#3b82f6';
+
+function openEditModal(id, name, loc, maxvps, isDef, maint, ramTotal, cpuCores, diskTotal) {
+    document.getElementById('en-name').value = name;
+    document.getElementById('en-location').value = loc || '';
+    document.getElementById('en-maxvps').value = maxvps;
+    document.getElementById('en-default').checked = isDef;
+    document.getElementById('en-maintenance').checked = maint;
+    document.getElementById('en-ram').value  = ramTotal  || 0;
+    document.getElementById('en-cpu').value  = cpuCores  || 0;
+    document.getElementById('en-disk').value = diskTotal || 0;
+    document.getElementById('edit-node-form').action = `/nodes/${id}/edit`;
+    document.getElementById('edit-node-modal').classList.add('open');
+}
+
+function makeChart(canvasId, color, label, maxY) {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx) return null;
+    return new Chart(ctx.getContext('2d'), {
+        type: 'line',
+        data: {
+            labels: Array(HISTORY_LEN).fill(''),
+            datasets: [{ data: Array(HISTORY_LEN).fill(0), borderColor: color,
+                backgroundColor: color.replace('0.7', '0.08'), borderWidth: 1.5,
+                fill: true, tension: 0.3, pointRadius: 0 }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: true,
+            plugins: { legend: { display: false }, tooltip: { enabled: false } },
+            scales: {
+                x: { display: false },
+                y: { display: false, min: 0, max: maxY || 100 }
+            },
+            animation: { duration: 300 }
+        }
+    });
+}
+
+nodeIds.forEach(id => {
+    cpuHistory[id] = Array(HISTORY_LEN).fill(0);
+    ramHistory[id] = Array(HISTORY_LEN).fill(0);
+    cpuCharts[id] = makeChart(`cpu-chart-${id}`, themeBlue, 'CPU%', 100);
+    ramCharts[id] = makeChart(`ram-chart-${id}`, 'rgba(34,197,94,0.7)', 'RAM MB', null);
+});
+
+function updateBar(id, pct, barId) {
+    const bar = document.getElementById(barId);
+    if (!bar) return;
+    bar.style.width = Math.min(pct, 100) + '%';
+    bar.className = `bar-fill ${pct > 85 ? 'bar-red' : pct > 65 ? 'bar-amber' : 'bar-blue'}`;
+}
+
+async function refreshNode(nodeId) {
+    try {
+        const r = await fetch(`/api/nodes/${nodeId}/stats`);
+        if (!r.ok) return;
+        const d = await r.json();
+
+        const badge = document.getElementById(`status-${nodeId}`);
+        if (badge) { badge.innerHTML = `<span class="badge-dot"></span>${d.status}`; badge.className = `badge badge-${d.status}`; }
+
+        updateBar(nodeId, d.cpu_pct, `cpu-bar-${nodeId}`);
+        const cpuLabel = document.getElementById(`cpu-label-${nodeId}`);
+        if (cpuLabel) {
+            const cpuColor = d.cpu_pct > 85 ? 'var(--red)' : d.cpu_pct > 65 ? 'var(--amber)' : 'var(--blue-2)';
+            cpuLabel.innerHTML = `<span style="font-weight:600;color:${cpuColor}">${d.cpu_pct}%</span> <span style="color:var(--text-3)"> · ${d.cpu_cores} core${d.cpu_cores != 1 ? 's' : ''}</span>`;
+        }
+
+        updateBar(nodeId, d.ram_pct, `ram-bar-${nodeId}`);
+        const ramLabel = document.getElementById(`ram-label-${nodeId}`);
+        if (ramLabel) {
+            const ramColor = d.ram_pct > 85 ? 'var(--red)' : d.ram_pct > 65 ? 'var(--amber)' : 'var(--blue-2)';
+            ramLabel.innerHTML = `${d.ram_used_mb} / ${d.ram_total_mb} MB <span style="font-weight:600;color:${ramColor}"> ${d.ram_pct}%</span>`;
+        }
+
+        updateBar(nodeId, d.disk_pct, `disk-bar-${nodeId}`);
+        const diskLabel = document.getElementById(`disk-label-${nodeId}`);
+        if (diskLabel) {
+            const diskColor = d.disk_pct > 85 ? 'var(--red)' : d.disk_pct > 65 ? 'var(--amber)' : 'var(--blue-2)';
+            diskLabel.innerHTML = `${d.disk_used_gb} / ${d.disk_total_gb || '?'} GB${d.disk_total_gb ? ` <span style="font-weight:600;color:${diskColor}"> ${d.disk_pct}%</span>` : ''}`;
+        }
+
+        const runEl = document.getElementById(`running-${nodeId}`);
+        if (runEl) runEl.textContent = d.running_instances;
+        const totEl = document.getElementById(`total-${nodeId}`);
+        if (totEl) totEl.innerHTML = `${d.total_instances}<span style="font-size:11px;color:var(--text-3);font-weight:400;">/${d.max_vps}</span>`;
+
+        cpuHistory[nodeId].push(d.cpu_pct); cpuHistory[nodeId].shift();
+        if (cpuCharts[nodeId]) { cpuCharts[nodeId].data.datasets[0].data = [...cpuHistory[nodeId]]; cpuCharts[nodeId].update('none'); }
+
+        ramHistory[nodeId].push(d.ram_used_mb); ramHistory[nodeId].shift();
+        if (ramCharts[nodeId]) { ramCharts[nodeId].options.scales.y.max = d.ram_total_mb || 1; ramCharts[nodeId].data.datasets[0].data = [...ramHistory[nodeId]]; ramCharts[nodeId].update('none'); }
+
+    } catch(e) {}
+}
+
+async function refreshAllNodes() {
+    const btn = document.getElementById('refresh-all-btn');
+    const icon = document.getElementById('nodes-refresh-icon');
+    if (btn)  btn.disabled = true;
+    if (icon) icon.style.animation = 'spin 0.8s linear infinite';
+    await Promise.all(nodeIds.map(id => refreshNode(id)));
+    _nodesLastRefresh = Date.now();
+    updateNodesLabel();
+    if (icon) icon.style.animation = '';
+    if (btn)  { btn.disabled = false; }
+}
+// spin keyframe
+const nodesStyle = document.createElement('style');
+nodesStyle.textContent = '@keyframes spin { to { transform: rotate(360deg); } }';
+document.head.appendChild(nodesStyle);
+
+async function loadHistory(nodeId) {
+    try {
+        const r = await fetch(`/api/nodes/${nodeId}/history`);
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d.cpu && d.cpu.length) {
+            cpuHistory[nodeId] = [...Array(Math.max(0, HISTORY_LEN - d.cpu.length)).fill(0), ...d.cpu.slice(-HISTORY_LEN)];
+            if (cpuCharts[nodeId]) { cpuCharts[nodeId].data.datasets[0].data = [...cpuHistory[nodeId]]; cpuCharts[nodeId].update('none'); }
+        }
+        if (d.ram && d.ram.length) {
+            ramHistory[nodeId] = [...Array(Math.max(0, HISTORY_LEN - d.ram.length)).fill(0), ...d.ram.slice(-HISTORY_LEN)];
+            if (ramCharts[nodeId]) { ramCharts[nodeId].options.scales.y.max = d.ram_total || 1; ramCharts[nodeId].data.datasets[0].data = [...ramHistory[nodeId]]; ramCharts[nodeId].update('none'); }
+        }
+    } catch(e) {}
+}
+
+nodeIds.forEach(id => loadHistory(id));
+
+// ── Last-updated label ──────────────────────────────────────────────────────
+let _nodesLastRefresh = Date.now();
+function updateNodesLabel() {
+    const s = Math.round((Date.now() - _nodesLastRefresh) / 1000);
+    const el = document.getElementById('nodes-refresh-ago');
+    if (el) el.textContent = s < 5 ? 'just now' : s < 60 ? s + 's ago' : Math.round(s/60) + 'm ago';
+}
+setInterval(updateNodesLabel, 2000);
+
+setInterval(() => {
+    nodeIds.forEach(id => refreshNode(id));
+    _nodesLastRefresh = Date.now();
+    updateNodesLabel();
+}, 8000);
+</script>
+{% endblock %}

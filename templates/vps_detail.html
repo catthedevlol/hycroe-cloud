@@ -1,0 +1,701 @@
+{% extends "base.html" %}
+{% block title %}{{ vps.name }} — Hycroe{% endblock %}
+{% block page_title %}
+<div style="display:flex;align-items:center;gap:8px;">
+    <a href="/dashboard" style="color:var(--text-3);display:flex;transition:color .12s;" onmouseover="this.style.color='var(--text-2)'" onmouseout="this.style.color='var(--text-3)'">
+        <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+    </a>
+    <span style="color:var(--text-3);">/</span>
+    <span>{{ vps.name }}</span>
+</div>
+{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+/* VPS detail responsive layout */
+.vps-top-grid {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 14px;
+    margin-bottom: 14px;
+    align-items: start;
+}
+.vps-bottom-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 14px;
+}
+.metrics-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 4px;
+}
+.metric-tile {
+    background: var(--bg-3);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 12px;
+    min-width: 0;
+}
+.metric-label {
+    font-size: 10.5px;
+    color: var(--text-3);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: .09em;
+    font-weight: 600;
+}
+.metric-value {
+    font-family: 'Geist Mono', monospace;
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.metric-value-sm {
+    font-family: 'Geist Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-2);
+    line-height: 1.6;
+}
+.metric-sub {
+    font-size: 10.5px;
+    color: var(--text-3);
+    margin-top: 2px;
+}
+.vps-action-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+@media (max-width: 900px) {
+    .vps-top-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+    .vps-bottom-grid { grid-template-columns: 1fr; }
+    .metrics-grid { grid-template-columns: 1fr 1fr; }
+    .topbar-right .btn-sm span { display: none; }
+}
+@media (max-width: 400px) {
+    .metrics-grid { grid-template-columns: 1fr; }
+}
+</style>
+{% endblock %}
+{% block topbar_extra %}
+<div class="topbar-right vps-action-row">
+    <a href="/console/{{ vps.name }}" class="btn btn-ghost btn-sm" style="color:var(--green);border-color:rgba(34,197,94,.2);">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6m8 14h8"/></svg>
+        <span>Console</span>
+    </a>
+    {% if not vps.suspended %}
+    {% if vps.status == 'running' %}
+    <form method="post" action="/stop" style="display:inline;" onsubmit="vpsActionSubmit(this,'Stopping…','var(--amber)')">
+        <input type="hidden" name="name" value="{{ vps.name }}">
+        <button class="btn btn-ghost btn-sm" style="color:var(--amber);border-color:rgba(245,158,11,.22);">
+            <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+            <span>Stop</span>
+        </button>
+    </form>
+    <form method="post" action="/restart" style="display:inline;" onsubmit="vpsActionSubmit(this,'Rebooting…','var(--text-2)')">
+        <input type="hidden" name="name" value="{{ vps.name }}">
+        <button class="btn btn-ghost btn-sm">
+            <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+            <span>Reboot</span>
+        </button>
+    </form>
+    {% else %}
+    <form method="post" action="/start" style="display:inline;" onsubmit="vpsActionSubmit(this,'Starting…','var(--green)')">
+        <input type="hidden" name="name" value="{{ vps.name }}">
+        <button class="btn btn-ghost btn-sm" style="color:var(--green);border-color:rgba(34,197,94,.22);">
+            <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            <span>Start</span>
+        </button>
+    </form>
+    {% endif %}
+    <button onclick="document.getElementById('rebuild-modal').classList.add('open')" class="btn btn-ghost btn-sm"><span>Reinstall</span></button>
+    {% endif %}
+    <form method="post" action="/delete" style="display:inline;" onsubmit="return vpsConfirmDelete(this,'{{ vps.name }}')">
+        <input type="hidden" name="name" value="{{ vps.name }}">
+        <button class="btn btn-danger btn-sm">
+            <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+            Delete
+        </button>
+    </form>
+</div>
+{% endblock %}
+{% block content %}
+
+{% if user.is_admin and vps.user_id != user.id %}
+<div class="alert alert-info" style="margin-bottom:16px;">
+    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+    <span>Admin view — managing <strong>{{ vps.owner.username if vps.owner else 'unknown' }}</strong>'s instance. All actions apply immediately.</span>
+</div>
+{% endif %}
+<!-- Header info row -->
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap;">
+    <span class="badge badge-{{ vps.status }}"><span class="badge-dot"></span>{{ vps.status }}</span>
+    {% if vps.suspended %}<span class="badge badge-suspended"><span class="badge-dot"></span>suspended</span>{% endif %}
+    {% if vps.instance_type == 'vm' %}
+    <span class="chip" style="background:var(--purple-dim);color:var(--purple);border:1px solid rgba(168,85,247,.2);">Virtual Machine</span>
+    {% else %}
+    <span class="chip chip-incus">Container</span>
+    {% endif %}
+    <span class="text-muted mono" style="font-size:11.5px;">{{ vps.os_image }}</span>
+    {% if vps.node %}<span class="text-muted" style="font-size:11.5px;">· {{ vps.node.display_name or vps.node.name }}</span>{% endif %}
+    {% if vps.ipv4 and vps.ipv4 != '—' %}
+    <span style="display:flex;align-items:center;gap:5px;">
+        <span class="text-muted" style="font-size:11px;">IPv4</span>
+        <span class="ip-mono">{{ vps.ipv4 }}</span>
+    </span>
+    {% endif %}
+</div>
+
+<!-- Main top grid: Specs + Metrics -->
+<div class="vps-top-grid">
+
+    <!-- Specs card -->
+    <div class="card" style="padding:0;">
+        <div style="padding:12px 14px;border-bottom:1px solid var(--border);">
+            <span class="section-title">Specifications</span>
+        </div>
+        <div style="padding:4px 0;">
+            {% set specs = [
+                ('Type', 'VM' if vps.instance_type == 'vm' else 'Container'),
+                ('CPU', vps.cpu ~ ' vCPU'),
+                ('RAM', vps.ram ~ ' MB'),
+                ('Disk', vps.disk_gb ~ ' GB'),
+                ('OS', vps.os_image),
+                ('IPv4', vps.ipv4 or '—'),
+                ('IPv6', vps.ipv6 or '—'),
+                ('Node', vps.node.display_name or vps.node.name if vps.node else 'local'),
+                ('Created', vps.created_at.strftime('%Y-%m-%d') if vps.created_at else '—'),
+            ] %}
+            {% for label, value in specs %}
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.03);">
+                <span style="font-size:11.5px;color:var(--text-3);">{{ label }}</span>
+                <span class="mono" style="font-size:11.5px;color:var(--text-2);word-break:break-all;text-align:right;max-width:60%;">{{ value }}</span>
+            </div>
+            {% endfor %}
+            <!-- Renewal timer row -->
+            {% if vps.expires_at %}
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.03);">
+                <span style="font-size:11.5px;color:var(--text-3);">Renewal</span>
+                <span id="renewal-countdown" class="mono" style="font-size:11.5px;color:var(--amber);text-align:right;"
+                      data-expires="{{ vps.expires_at.isoformat() }}">
+                    {{ vps.expires_at.strftime('%Y-%m-%d') }}
+                </span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Metrics card -->
+    <div class="card" style="padding:0;">
+        <div style="padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+            <span class="section-title">Live Metrics</span>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <span id="metrics-status" style="font-size:11px;color:var(--text-3);">polling…</span>
+                <button onclick="fetchMetrics()" class="btn btn-ghost btn-xs">
+                    <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+                    Refresh
+                </button>
+            </div>
+        </div>
+        <div style="padding:14px;">
+            <div class="metrics-grid">
+                <div class="metric-tile">
+                    <div class="metric-label">CPU</div>
+                    <div class="metric-value" style="color:var(--blue-2);" id="m-cpu">
+                        {%- if metrics.cpu is not none and metrics.cpu is not sameas none -%}
+                            {{ metrics.cpu }}%
+                        {%- else -%}
+                            <span style="color:var(--text-3);font-size:14px;">--</span>
+                        {%- endif -%}
+                    </div>
+                    <div class="bar-track" style="margin-top:8px;">
+                        <div class="bar-fill bar-blue" id="m-cpu-bar" style="width:{% if metrics.cpu is not none and metrics.cpu is not sameas none %}{{ [metrics.cpu,100]|min }}{% else %}0{% endif %}%;transition:width .4s;"></div>
+                    </div>
+                </div>
+                <div class="metric-tile">
+                    <div class="metric-label">RAM</div>
+                    <div class="metric-value" style="color:var(--green);" id="m-ram">{{ metrics.ram_used if metrics.ram_used is not none else '--' }}{{ 'MB' if metrics.ram_used is not none else '' }}</div>
+                    <div class="metric-sub" id="m-ram-total">of {{ metrics.ram_total or vps.ram }}MB</div>
+                    <div class="bar-track" style="margin-top:8px;">
+                        <div class="bar-fill bar-green" id="m-ram-bar" style="width:{% if metrics.ram_used and metrics.ram_total and metrics.ram_total > 0 %}{{ [(metrics.ram_used / metrics.ram_total * 100)|int,100]|min }}{% else %}0{% endif %}%;transition:width .4s;"></div>
+                    </div>
+                </div>
+                <div class="metric-tile">
+                    <div class="metric-label">Network</div>
+                    <div class="metric-value-sm" id="m-net-rx">↓ {{ metrics.net_rx if metrics.net_rx is not none else '--' }}{{ ' KB' if metrics.net_rx is not none else '' }}</div>
+                    <div class="metric-value-sm" id="m-net-tx">↑ {{ metrics.net_tx if metrics.net_tx is not none else '--' }}{{ ' KB' if metrics.net_tx is not none else '' }}</div>
+                </div>
+                <div class="metric-tile">
+                    <div class="metric-label">Disk I/O</div>
+                    <div class="metric-value-sm" id="m-disk-r">R {{ metrics.disk_read if metrics.disk_read is not none else '--' }}{{ ' KB' if metrics.disk_read is not none else '' }}</div>
+                    <div class="metric-value-sm" id="m-disk-w">W {{ metrics.disk_write if metrics.disk_write is not none else '--' }}{{ ' KB' if metrics.disk_write is not none else '' }}</div>
+                </div>
+            </div>
+            <!-- Sparkline charts -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px;">
+                <div>
+                    <div style="font-size:9.5px;color:var(--text-3);text-transform:uppercase;letter-spacing:.09em;font-weight:600;margin-bottom:4px;">CPU History</div>
+                    <canvas id="cpuChart" height="52"></canvas>
+                </div>
+                <div>
+                    <div style="font-size:9.5px;color:var(--text-3);text-transform:uppercase;letter-spacing:.09em;font-weight:600;margin-bottom:4px;">RAM History</div>
+                    <canvas id="ramChart" height="52"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bottom grid: Port forwarding + Snapshots -->
+<div class="vps-bottom-grid">
+    <!-- Port forwarding -->
+    <div class="card" style="padding:0;">
+        <div style="padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+            <span class="section-title">Port Forwarding</span>
+            <button onclick="document.getElementById('forward-modal').classList.add('open')" class="btn btn-ghost btn-xs">
+                <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                Add Rule
+            </button>
+        </div>
+        {% if forwards %}
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead><tr><th>Proto</th><th>Host</th><th>Container</th><th></th></tr></thead>
+                <tbody>
+                    {% for f in forwards %}
+                    <tr>
+                        <td><span class="badge {% if f.protocol == 'tcp' %}badge-running{% else %}badge-stopped{% endif %}">{{ f.protocol|upper }}</span></td>
+                        <td class="mono text-blue">:{{ f.host_port }}</td>
+                        <td class="mono text-muted">:{{ f.container_port }}</td>
+                        <td>
+                            <form method="post" action="/forward/delete" style="display:inline;">
+                                <input type="hidden" name="vps_name" value="{{ vps.name }}">
+                                <input type="hidden" name="forward_id" value="{{ f.id }}">
+                                <button class="btn btn-ghost btn-xs" style="color:var(--red);border-color:rgba(239,68,68,.15);">Remove</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div style="padding:24px;text-align:center;color:var(--text-3);font-size:12.5px;">No rules configured.</div>
+        {% endif %}
+    </div>
+
+    <!-- Snapshots -->
+    <div class="card" style="padding:0;">
+        <div style="padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <span class="section-title">Snapshots</span>
+            <form method="post" action="/backup/create" style="display:flex;align-items:center;gap:6px;">
+                <input type="hidden" name="vps_name" value="{{ vps.name }}">
+                <input type="text" name="description" placeholder="Note…" class="form-input" style="width:120px;padding:4px 8px;font-size:11.5px;">
+                <button class="btn btn-ghost btn-xs">
+                    <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                    Snapshot
+                </button>
+            </form>
+        </div>
+        {% if backups %}
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead><tr><th>Name</th><th>Created</th><th>Actions</th></tr></thead>
+                <tbody>
+                    {% for b in backups %}
+                    <tr>
+                        <td>
+                            <div class="mono" style="font-size:11.5px;color:var(--text-2);">{{ b.snapshot_name }}</div>
+                            {% if b.description %}<div style="font-size:11px;color:var(--text-3);">{{ b.description }}</div>{% endif %}
+                        </td>
+                        <td class="mono text-muted" style="font-size:11px;">{{ b.created_at.strftime('%m-%d %H:%M') if b.created_at else '—' }}</td>
+                        <td>
+                            <div style="display:flex;gap:4px;">
+                                <form method="post" action="/backup/restore" style="display:inline;" onsubmit="return confirm('Restore? Current state will be lost.')">
+                                    <input type="hidden" name="vps_name" value="{{ vps.name }}">
+                                    <input type="hidden" name="snapshot_name" value="{{ b.snapshot_name }}">
+                                    <button class="btn btn-ghost btn-xs" style="color:var(--blue-2);border-color:color-mix(in srgb,var(--blue) 25%,transparent);">Restore</button>
+                                </form>
+                                <form method="post" action="/backup/delete" style="display:inline;">
+                                    <input type="hidden" name="vps_name" value="{{ vps.name }}">
+                                    <input type="hidden" name="snapshot_name" value="{{ b.snapshot_name }}">
+                                    <input type="hidden" name="backup_id" value="{{ b.id }}">
+                                    <button class="btn btn-ghost btn-xs" style="color:var(--red);border-color:rgba(239,68,68,.15);">Delete</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div style="padding:24px;text-align:center;color:var(--text-3);font-size:12.5px;">No snapshots yet.</div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Port Forward Modal -->
+<div id="forward-modal" class="modal-backdrop" onclick="if(event.target===this)this.classList.remove('open')">
+    <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span class="modal-title">Add Port Forward</span>
+            <button class="modal-close" onclick="document.getElementById('forward-modal').classList.remove('open')">
+                <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <form method="post" action="/forward/add">
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;">
+                <input type="hidden" name="vps_name" value="{{ vps.name }}">
+                <div class="form-grid form-grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Protocol</label>
+                        <select name="protocol" class="form-input">
+                            <option value="tcp">TCP</option>
+                            <option value="udp">UDP</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Host Port</label>
+                        <input type="number" name="host_port" placeholder="8080" min="1024" max="65535" required class="form-input">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Container Port</label>
+                    <input type="number" name="container_port" placeholder="80" min="1" max="65535" required class="form-input">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Description <span class="text-muted">(optional)</span></label>
+                    <input type="text" name="description" placeholder="HTTP server, SSH, etc." class="form-input">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="document.getElementById('forward-modal').classList.remove('open')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Add Rule</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Rebuild Modal -->
+<div id="rebuild-modal" class="modal-backdrop" onclick="if(event.target===this)this.classList.remove('open')">
+    <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span class="modal-title">Reinstall OS</span>
+            <button class="modal-close" onclick="document.getElementById('rebuild-modal').classList.remove('open')">
+                <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <form method="post" action="/rebuild">
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
+                <input type="hidden" name="vps_name" value="{{ vps.name }}">
+                <div class="alert alert-warn">
+                    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px;"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                    All data on this instance will be wiped. This cannot be undone.
+                </div>
+                <div class="form-group">
+                    <label class="form-label">OS Image</label>
+                    <select name="os_image" class="form-input">
+                        <option value="ubuntu/22.04">Ubuntu 22.04 LTS</option>
+                        <option value="ubuntu/24.04">Ubuntu 24.04 LTS</option>
+                        <option value="debian/12">Debian 12</option>
+                        <option value="alpine/3.19">Alpine 3.19</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="document.getElementById('rebuild-modal').classList.remove('open')">Cancel</button>
+                <button type="submit" class="btn btn-danger">Reinstall OS</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+// ── Sparkline charts ─────────────────────────────────────────────────────────
+const HIST = 40;
+const cpuHist = Array(HIST).fill(0);
+const ramHist = Array(HIST).fill(0);
+
+// Resolve theme accent colour from CSS variable so charts respect admin theme
+function cssVar(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+const colBlue  = cssVar('--blue')  || '#3b82f6';
+const colGreen = cssVar('--green') || '#22c55e';
+
+function makeSparkline(canvasId, color, maxY) {
+    const el = document.getElementById(canvasId);
+    if (!el) return null;
+    // Derive semi-transparent fill from the border color
+    const fill = color.startsWith('#')
+        ? color + '18'
+        : color.replace(/rgb\(/, 'rgba(').replace(/\)$/, ', 0.08)');
+    return new Chart(el.getContext('2d'), {
+        type: 'line',
+        data: {
+            labels: Array(HIST).fill(''),
+            datasets: [{ data: Array(HIST).fill(0), borderColor: color,
+                backgroundColor: fill, borderWidth: 1.5,
+                fill: true, tension: 0.3, pointRadius: 0 }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: true,
+            plugins: { legend: { display: false }, tooltip: { enabled: false } },
+            scales: {
+                x: { display: false },
+                y: {
+                    display: true, min: 0, max: maxY || 100,
+                    grid: { color: 'rgba(255,255,255,.04)', drawTicks: false },
+                    ticks: { color: 'rgba(255,255,255,.18)',
+                             font: { family: "'Geist Mono'", size: 9 },
+                             maxTicksLimit: 3,
+                             callback: v => maxY === 100 ? v + '%' : v + 'M' },
+                    border: { display: false }
+                }
+            },
+            animation: { duration: 180 }
+        }
+    });
+}
+
+const cpuChart = makeSparkline('cpuChart', colBlue, 100);
+const ramChart = makeSparkline('ramChart', colGreen, null);
+let ramChartMax = 0;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+function setText(id, v) { const el = $(id); if (el) el.textContent = v; }
+function setBar(id, pct) {
+    const el = $(id);
+    if (el) el.style.width = Math.min(Math.max(pct, 0), 100).toFixed(1) + '%';
+}
+function fmtKB(kb) {
+    kb = kb || 0;
+    if (kb >= 1024 * 1024) return (kb / 1024 / 1024).toFixed(2) + ' GB';
+    if (kb >= 1024)        return (kb / 1024).toFixed(1) + ' MB';
+    return kb.toFixed(0) + ' KB';
+}
+
+// ── Poll state machine ────────────────────────────────────────────────────────
+let pollActive = true;
+let pollTimer  = null;
+let firstPoll  = true;
+let _vpsMetricLastUpdate = Date.now();
+setInterval(() => { const s = Math.round((Date.now()-_vpsMetricLastUpdate)/1000); const el = document.getElementById('metrics-status'); if(el && el.style.color==='rgb(78, 86, 110)') el.textContent = s < 5 ? 'just now' : s < 60 ? s+'s ago' : Math.round(s/60)+'m ago'; }, 2000);
+let errorCount = 0;
+const MAX_ERRORS = 8;
+
+async function fetchMetrics() {
+    const VPS_NAME = '{{ vps.name }}';
+    console.log('[metrics] Fetching metrics for:', VPS_NAME);
+    const statusEl = $('metrics-status');
+
+    // Show loading indicator only on the very first poll
+    if (firstPoll && statusEl) {
+        statusEl.textContent = 'Loading…';
+        statusEl.style.color = 'var(--text-3)';
+    }
+
+    try {
+        const r = await fetch(`/api/vps/${VPS_NAME}/metrics`, {
+            // Abort if backend takes >8s — keeps the poll loop healthy
+            signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined,
+        });
+
+        // ── HTTP-level errors (401, 404, 5xx) ────────────────────────────────
+        if (!r.ok) {
+            errorCount++;
+            const msg = r.status === 404 ? 'VPS not found'
+                      : r.status === 401 ? 'auth error'
+                      : r.status === 403 ? 'access denied'
+                      : `server error (${r.status})`;
+            if (statusEl) { statusEl.textContent = msg; statusEl.style.color = 'var(--red)'; }
+            const delay = errorCount >= MAX_ERRORS ? 30000 : 5000;
+            if (pollActive) pollTimer = setTimeout(fetchMetrics, delay);
+            return;
+        }
+
+        const d = await r.json();
+
+        // ── Backend reported metrics unavailable (Incus timeout / down) ──────
+        if (d.status === 'unavailable') {
+            errorCount++;
+            if (statusEl) {
+                statusEl.textContent = firstPoll ? 'Metrics unavailable' : 'stale data';
+                statusEl.style.color = 'var(--amber)';
+            }
+            // Still render whatever values we have (last-known-good from cache)
+            // Fall through to the render block below — null values show '--'
+        } else {
+            errorCount = 0;
+        }
+
+        // ── CPU ──────────────────────────────────────────────────────────────
+        const cpuRaw = typeof d.cpu === 'number' ? d.cpu : null;
+        const cpuDisplay = cpuRaw !== null ? cpuRaw.toFixed(1) + '%' : '--';
+        setText('m-cpu', cpuDisplay);
+        setBar('m-cpu-bar', cpuRaw !== null ? cpuRaw : 0);
+        const cpuEl = $('m-cpu');
+        if (cpuEl) cpuEl.style.color =
+            cpuRaw === null     ? 'var(--text-3)'
+            : cpuRaw > 85       ? 'var(--red)'
+            : cpuRaw > 65       ? 'var(--amber)'
+            : 'var(--blue-2)';
+
+        // ── RAM ──────────────────────────────────────────────────────────────
+        const ramUsed  = typeof d.ram_used  === 'number' ? d.ram_used  : null;
+        const ramTotal = typeof d.ram_total === 'number' ? d.ram_total
+                       : (typeof d.vps_ram  === 'number' ? d.vps_ram   : 0);
+        setText('m-ram', ramUsed !== null ? ramUsed + ' MB' : '--');
+        setText('m-ram-total', 'of ' + (ramTotal || '?') + ' MB');
+        const ramPct = typeof d.ram_pct === 'number' ? d.ram_pct
+                     : (ramTotal > 0 && ramUsed !== null ? ramUsed / ramTotal * 100 : 0);
+        setBar('m-ram-bar', ramPct);
+
+        // ── Network — rates when available, cumulative totals otherwise ───────
+        const rxRate = typeof d.net_rx_rate === 'number' ? d.net_rx_rate : 0;
+        const txRate = typeof d.net_tx_rate === 'number' ? d.net_tx_rate : 0;
+        if (rxRate > 0 || txRate > 0) {
+            setText('m-net-rx', '↓ ' + rxRate.toFixed(1) + ' KB/s');
+            setText('m-net-tx', '↑ ' + txRate.toFixed(1) + ' KB/s');
+        } else if (typeof d.net_rx === 'number') {
+            setText('m-net-rx', '↓ ' + fmtKB(d.net_rx));
+            setText('m-net-tx', '↑ ' + fmtKB(d.net_tx));
+        } else {
+            setText('m-net-rx', '↓ --');
+            setText('m-net-tx', '↑ --');
+        }
+
+        // ── Disk I/O ─────────────────────────────────────────────────────────
+        setText('m-disk-r', typeof d.disk_read  === 'number' ? 'R ' + fmtKB(d.disk_read)  : 'R --');
+        setText('m-disk-w', typeof d.disk_write === 'number' ? 'W ' + fmtKB(d.disk_write) : 'W --');
+
+        // ── Sparklines ───────────────────────────────────────────────────────
+        cpuHist.push(cpuRaw !== null ? cpuRaw : 0); cpuHist.shift();
+        if (cpuChart) {
+            cpuChart.data.datasets[0].data = [...cpuHist];
+            cpuChart.update('none');
+        }
+
+        ramHist.push(ramUsed !== null ? ramUsed : 0); ramHist.shift();
+        if (ramChart) {
+            const newMax = ramTotal || Math.max(...ramHist, 1024);
+            if (newMax > ramChartMax) {
+                ramChartMax = newMax;
+                ramChart.options.scales.y.max = ramChartMax;
+            }
+            ramChart.data.datasets[0].data = [...ramHist];
+            ramChart.update('none');
+        }
+
+        // ── Status indicator — only update if metrics were fresh ──────────────
+        if (d.status !== 'unavailable' && statusEl) {
+            _vpsMetricLastUpdate = Date.now();
+            statusEl.textContent = 'just now';
+            statusEl.style.color = 'var(--text-3)';
+        }
+
+        firstPoll = false;
+
+    } catch (e) {
+        errorCount++;
+        // Network-level failure (DNS, TCP, AbortError from our 8s timeout).
+        // Use friendly messages; reserve 'network error' only as a last resort.
+        const isTimeout = e.name === 'AbortError' || e.name === 'TimeoutError';
+        const msg = isTimeout ? 'request timeout' : (errorCount >= MAX_ERRORS ? 'connection lost' : 'retrying…');
+        if (statusEl) { statusEl.textContent = msg; statusEl.style.color = errorCount >= MAX_ERRORS ? 'var(--red)' : 'var(--amber)'; }
+        console.warn('[metrics] fetch error (vps=' + '{{ vps.name }}' + '):', e.name, e.message);
+    }
+
+    // Adaptive poll rate: back off when there are repeated errors
+    if (pollActive) {
+        const delay = errorCount === 0 ? 3000
+                    : errorCount < 4  ? 5000
+                    : errorCount < MAX_ERRORS ? 10000
+                    : 30000;
+        pollTimer = setTimeout(fetchMetrics, delay);
+    }
+}
+
+// ── Action button helpers ─────────────────────────────────────────────────────
+function vpsActionSubmit(form, label, color) {
+    const btn = form.querySelector('button');
+    if (!btn) return true;
+    btn.disabled = true;
+    btn.style.opacity = '.6';
+    btn.style.color = color;
+    btn.innerHTML = `<svg class="spin" width="12" height="12" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity=".25"/><path d="M12 2a10 10 0 0110 10" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg><span>${label}</span>`;
+    return true;
+}
+function vpsConfirmDelete(form, name) {
+    if (!confirm('Delete ' + name + '? This cannot be undone.')) return false;
+    const btn = form.querySelector('button');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<svg class="spin" width="12" height="12" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity=".25"/><path d="M12 2a10 10 0 0110 10" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg> Deleting…'; }
+    return true;
+}
+// spin keyframe
+const vpsStyle = document.createElement('style');
+vpsStyle.textContent = '@keyframes spin { to { transform: rotate(360deg); } }';
+document.head.appendChild(vpsStyle);
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+fetchMetrics();
+
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        pollActive = false;
+        clearTimeout(pollTimer);
+    } else {
+        pollActive = true;
+        errorCount = 0;
+        fetchMetrics();
+    }
+});
+
+// ── Renewal countdown ─────────────────────────────────────────────────────
+(function() {
+    const el = document.getElementById('renewal-countdown');
+    if (!el) return;
+    const expires = new Date(el.dataset.expires + 'Z');  // treat as UTC
+
+    function tick() {
+        const now  = new Date();
+        const diff = expires - now;
+        if (diff <= 0) {
+            el.textContent = 'Expired';
+            el.style.color = 'var(--red)';
+            return;
+        }
+        const days  = Math.floor(diff / 86400000);
+        const hrs   = Math.floor((diff % 86400000) / 3600000);
+        const mins  = Math.floor((diff % 3600000)  /   60000);
+        const secs  = Math.floor((diff %   60000)  /    1000);
+
+        if (days > 7) {
+            el.textContent = `${days}d ${hrs}h`;
+            el.style.color = 'var(--green)';
+        } else if (days >= 3) {
+            el.textContent = `${days}d ${hrs}h ${mins}m`;
+            el.style.color = 'var(--amber)';
+        } else {
+            el.textContent = `${days}d ${hrs}h ${mins}m ${secs}s`;
+            el.style.color = days < 1 ? 'var(--red)' : 'var(--amber)';
+        }
+    }
+    tick();
+    setInterval(tick, 1000);
+})();
+</script>
+{% endblock %}
+
+

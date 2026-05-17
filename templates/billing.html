@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+{% block title %}Billing — Hycroe{% endblock %}
+{% block page_title %}Billing{% endblock %}
+{% block content %}
+
+<!-- Balance row -->
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px;">
+    <div class="stat-card" style="grid-column:1/3;">
+        <div class="stat-label">Current Balance</div>
+        <div style="display:flex;align-items:baseline;gap:8px;">
+            <div class="stat-value {% if low_credits %}c-amber{% else %}c-blue{% endif %}">{{ user.credits }}</div>
+            <span class="text-muted mono" style="font-size:13px;">credits</span>
+        </div>
+        <div class="stat-sub" style="margin-top:8px;">1 credit ≈ $0.001 USD &middot; VPS costs from 70cr/deploy</div>
+        <div class="stat-sub mono" style="margin-top:3px;">Formula: (RAM/512×10) + (CPU×50) + (Disk×5)</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Transactions</div>
+        <div class="stat-value">{{ transactions|length }}</div>
+        <div class="stat-sub">total records</div>
+    </div>
+</div>
+
+<!-- Coupon redeem -->
+<div style="margin-bottom:24px;">
+    <div class="section-hd" style="margin-bottom:14px;"><span class="section-title">Redeem Coupon</span></div>
+    <div class="card" style="padding:20px;max-width:480px;">
+        <div style="margin-bottom:14px;">
+            <div style="font-size:13.5px;font-weight:600;color:var(--text);margin-bottom:4px;">Have a coupon code?</div>
+            <div style="font-size:12px;color:var(--text-3);">Enter your code below to add credits instantly.</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:flex-end;">
+            <div style="flex:1;">
+                <label class="form-label" for="coupon-input">Coupon Code</label>
+                <input id="coupon-input" class="form-input mono" type="text" placeholder="HYCROE-XXXX-XXXX"
+                       autocomplete="off" style="text-transform:uppercase;letter-spacing:0.04em;" maxlength="32">
+            </div>
+            <button id="redeem-btn" class="btn btn-primary" onclick="redeemCoupon()" style="flex-shrink:0;">
+                <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M9 14l2 2 4-4"/><path d="M21 12c0 1.2-.504 2.3-1.312 3.1L12 21l-7.688-5.9A4 4 0 013 12V5a2 2 0 012-2h14a2 2 0 012 2v7z"/></svg>
+                Redeem
+            </button>
+        </div>
+        <div id="coupon-msg" style="margin-top:10px;display:none;"></div>
+    </div>
+</div>
+
+<!-- Purchase Credits -->
+<div style="margin-bottom:24px;">
+    <div class="section-hd" style="margin-bottom:14px;"><span class="section-title">Purchase Credits</span></div>
+
+    <!-- Payment method selector -->
+    <div class="card" style="padding:16px 18px;margin-bottom:16px;max-width:680px;">
+        <div style="font-size:11.5px;font-weight:600;color:var(--text-2);margin-bottom:12px;text-transform:uppercase;letter-spacing:.08em;">Payment Method</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <label id="pm-stripe" class="pm-option active" onclick="selectPayment('stripe')">
+                <input type="radio" name="payment_method_sel" value="stripe" checked style="display:none;">
+                <div class="pm-icon" style="color:var(--blue-2);">
+                    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+                </div>
+                <div class="pm-label">Card (Stripe)</div>
+                <div class="pm-sub">Visa · Mastercard</div>
+            </label>
+
+            {% if razorpay_enabled %}
+            <label id="pm-upi" class="pm-option" onclick="selectPayment('upi')">
+                <input type="radio" name="payment_method_sel" value="upi" style="display:none;">
+                <div class="pm-icon" style="color:var(--green);">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                </div>
+                <div class="pm-label">UPI</div>
+                <div class="pm-sub">GPay · PhonePe · Paytm</div>
+            </label>
+            {% else %}
+            <div class="pm-option disabled" title="Configure RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to enable">
+                <div class="pm-icon" style="color:var(--text-4);"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>
+                <div class="pm-label" style="color:var(--text-3);">UPI</div>
+                <div class="pm-sub" style="color:var(--text-4);">Not configured</div>
+            </div>
+            {% endif %}
+
+            {% if nowpayments_enabled %}
+            <label id="pm-crypto" class="pm-option" onclick="selectPayment('crypto')">
+                <input type="radio" name="payment_method_sel" value="crypto" style="display:none;">
+                <div class="pm-icon" style="color:var(--amber);">
+                    <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.5 9a2.5 2.5 0 015 0v1a2.5 2.5 0 01-5 0V9zM9.5 15a2.5 2.5 0 005 0"/></svg>
+                </div>
+                <div class="pm-label">Crypto</div>
+                <div class="pm-sub">BTC · ETH · USDT</div>
+            </label>
+            {% else %}
+            <div class="pm-option disabled" title="Configure NOWPAYMENTS_API_KEY to enable">
+                <div class="pm-icon" style="color:var(--text-4);"><svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.5 9a2.5 2.5 0 015 0v1a2.5 2.5 0 01-5 0V9zM9.5 15a2.5 2.5 0 005 0"/></svg></div>
+                <div class="pm-label" style="color:var(--text-3);">Crypto</div>
+                <div class="pm-sub" style="color:var(--text-4);">Not configured</div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Crypto coin selector (hidden unless crypto selected) -->
+        <div id="crypto-coin-row" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+            <label class="form-label">Select Coin</label>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;" id="coin-selector">
+                {% for coin in crypto_coins %}
+                <label class="coin-btn {% if coin == 'BTC' %}selected{% endif %}">
+                    <input type="radio" name="crypto_coin_sel" value="{{ coin }}" {% if coin == 'BTC' %}checked{% endif %} style="display:none;" onchange="selectCoin('{{ coin }}')">
+                    {{ crypto_labels[coin] }}
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Package cards -->
+    {% if stripe_pub or razorpay_enabled or nowpayments_enabled %}
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">
+        {% for pkg in packages %}
+        <div class="card card-hover" style="padding:20px;{% if loop.index == 2 %}border-color:color-mix(in srgb,var(--blue) 40%,transparent);{% endif %}">
+            {% if loop.index == 2 %}
+            <div style="font-size:10px;font-weight:700;color:var(--blue-2);text-transform:uppercase;letter-spacing:.12em;margin-bottom:12px;">Most Popular</div>
+            {% endif %}
+            <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:12px;">{{ pkg.label }}</div>
+            <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:4px;">
+                <span class="mono" style="font-size:28px;font-weight:700;color:var(--blue-2);">{{ pkg.credits }}</span>
+                <span class="text-muted" style="font-size:12.5px;">credits</span>
+            </div>
+            <div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:4px;">${{ "%.2f"|format(pkg.price / 100) }}</div>
+            <div id="inr-price-{{ loop.index }}" style="font-size:11px;color:var(--text-3);margin-bottom:14px;display:none;">
+                ≈ ₹{{ "%.0f"|format(pkg.price / 100 * 83) }}
+            </div>
+
+            <button class="btn {% if loop.index == 2 %}btn-primary{% else %}btn-secondary{% endif %} buy-btn"
+                    style="width:100%;justify-content:center;"
+                    data-pkg="{{ pkg.id }}"
+                    onclick="doPurchase('{{ pkg.id }}', this)">
+                Buy {{ pkg.credits }} Credits
+            </button>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="alert alert-warn">
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px;"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+        No payment gateways configured. Set at least one of <span class="mono">STRIPE_PUBLIC_KEY</span>, <span class="mono">RAZORPAY_KEY_ID</span>, or <span class="mono">NOWPAYMENTS_API_KEY</span>.
+    </div>
+    {% endif %}
+</div>
+
+<!-- Transaction history -->
+<div class="card" style="padding:0;">
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+        <span class="section-title">Transaction History</span>
+        {% if transactions %}<span class="text-muted mono" style="font-size:11px;">{{ transactions|length }} records</span>{% endif %}
+    </div>
+    {% if transactions %}
+    <div class="table-wrap">
+        <table class="data-table">
+            <thead><tr><th>Date</th><th>Description</th><th>Gateway</th><th>Type</th><th style="text-align:right;">Amount</th></tr></thead>
+            <tbody>
+                {% for tx in transactions %}
+                <tr>
+                    <td class="mono text-muted" style="font-size:11px;white-space:nowrap;">{{ tx.created_at.strftime('%Y-%m-%d %H:%M') if tx.created_at else '—' }}</td>
+                    <td style="color:var(--text);max-width:220px;"><span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ tx.description }}</span></td>
+                    <td>
+                        {% if tx.gateway == 'stripe' %}<span class="badge" style="color:var(--blue-2);background:var(--blue-dim);border:1px solid color-mix(in srgb,var(--blue) 22%,transparent);">stripe</span>
+                        {% elif tx.gateway == 'razorpay' %}<span class="badge" style="color:var(--green);background:var(--green-dim);border:1px solid rgba(34,197,94,.18);">upi</span>
+                        {% elif tx.gateway == 'nowpayments' %}<span class="badge" style="color:var(--amber);background:var(--amber-dim);border:1px solid rgba(245,158,11,.18);">crypto</span>
+                        {% elif tx.gateway == 'coupon' %}<span class="badge" style="color:var(--purple);background:var(--purple-dim);border:1px solid rgba(168,85,247,.18);">coupon</span>
+                        {% else %}<span class="badge" style="color:var(--text-3);background:var(--bg-3);border:1px solid var(--border);">—</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if tx.tx_type == 'purchase' or tx.tx_type == 'upi' or tx.tx_type == 'crypto' %}<span class="badge" style="color:var(--green);background:var(--green-dim);border:1px solid rgba(34,197,94,.18);">{{ tx.tx_type }}</span>
+                        {% elif tx.tx_type == 'coupon' %}<span class="badge" style="color:var(--green);background:var(--green-dim);border:1px solid rgba(34,197,94,.18);">coupon</span>
+                        {% elif tx.tx_type == 'refund' %}<span class="badge" style="color:var(--blue-2);background:var(--blue-dim);border:1px solid color-mix(in srgb,var(--blue) 22%,transparent);">refund</span>
+                        {% elif tx.tx_type == 'admin' %}<span class="badge" style="color:var(--purple);background:var(--purple-dim);border:1px solid rgba(168,85,247,.18);">admin</span>
+                        {% else %}<span class="badge" style="color:var(--text-3);background:var(--bg-3);border:1px solid var(--border);">{{ tx.tx_type }}</span>{% endif %}
+                    </td>
+                    <td class="mono" style="text-align:right;font-weight:600;{% if tx.amount > 0 %}color:var(--green){% else %}color:var(--red){% endif %};">
+                        {% if tx.amount > 0 %}+{% endif %}{{ tx.amount }}cr
+                        {% if tx.gateway_status == 'pending' %}<span style="font-size:10px;color:var(--amber);display:block;">pending</span>{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state" style="padding:40px;">
+        <div class="empty-icon"><svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="var(--text-3)" stroke-width="1.5"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></div>
+        <div class="empty-title">No transactions</div>
+        <div class="empty-desc">Your transaction history will appear here.</div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Hidden checkout form -->
+<form id="checkout-form" method="post" action="/billing/checkout" style="display:none;">
+    <input type="hidden" name="package_id"      id="cf-pkg">
+    <input type="hidden" name="payment_method"  id="cf-method" value="stripe">
+    <input type="hidden" name="crypto_coin"     id="cf-coin"   value="BTC">
+</form>
+
+{% endblock %}
+{% block scripts %}
+<style>
+.pm-option {
+    display:flex;flex-direction:column;align-items:center;gap:5px;
+    padding:12px 16px;border-radius:var(--r-lg);border:1px solid var(--border);
+    cursor:pointer;min-width:120px;transition:border-color .15s,background .15s;
+    background:var(--bg-3);
+}
+.pm-option:hover:not(.disabled) { border-color:var(--border-2); background:var(--bg-4); }
+.pm-option.active { border-color:var(--blue);background:var(--blue-dim); }
+.pm-option.disabled { opacity:.4;cursor:not-allowed; }
+.pm-icon { width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:var(--r);background:var(--bg-2);border:1px solid var(--border); }
+.pm-label { font-size:12.5px;font-weight:700;color:var(--text); }
+.pm-sub { font-size:10.5px;color:var(--text-3); }
+.coin-btn {
+    padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;
+    border:1px solid var(--border);color:var(--text-3);cursor:pointer;
+    background:var(--bg-3);transition:all .12s;
+}
+.coin-btn:hover { border-color:var(--border-2);color:var(--text-2); }
+.coin-btn.selected { border-color:var(--amber);color:var(--amber);background:var(--amber-dim); }
+@keyframes coupon-msg-in { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:none} }
+</style>
+<script>
+let currentMethod = 'stripe';
+let currentCoin   = 'BTC';
+
+function selectPayment(method) {
+    currentMethod = method;
+    document.querySelectorAll('.pm-option:not(.disabled)').forEach(el => el.classList.remove('active'));
+    const el = document.getElementById('pm-' + method);
+    if (el) el.classList.add('active');
+    document.getElementById('crypto-coin-row').style.display = (method === 'crypto') ? '' : 'none';
+    // Show/hide INR prices
+    document.querySelectorAll('[id^="inr-price-"]').forEach(el => {
+        el.style.display = (method === 'upi') ? '' : 'none';
+    });
+}
+
+function selectCoin(coin) {
+    currentCoin = coin;
+    document.querySelectorAll('.coin-btn').forEach(b => b.classList.remove('selected'));
+    event.currentTarget.classList.add('selected');
+}
+
+function doPurchase(pkgId, btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<svg class="spin" width="13" height="13" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,.25)" stroke-width="3"/><path d="M12 2a10 10 0 0110 10" stroke="white" stroke-width="3" stroke-linecap="round"/></svg> Redirecting…';
+    document.getElementById('cf-pkg').value    = pkgId;
+    document.getElementById('cf-method').value = currentMethod;
+    document.getElementById('cf-coin').value   = currentCoin;
+    document.getElementById('checkout-form').submit();
+}
+
+// Coupon redeem
+async function redeemCoupon() {
+    const input = document.getElementById('coupon-input');
+    const btn   = document.getElementById('redeem-btn');
+    const msg   = document.getElementById('coupon-msg');
+    const code  = input.value.trim().toUpperCase();
+    if (!code) { showCouponMsg('Please enter a coupon code.', 'warn'); return; }
+    btn.disabled = true;
+    btn.innerHTML = '<svg class="spin" width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M4 12a8 8 0 018-8"/></svg> Checking…';
+    msg.style.display = 'none';
+    try {
+        const res = await fetch('/billing/redeem', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ code }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            const msgHtml = `<span style="display:flex;align-items:center;gap:9px;"><svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0;color:var(--green)"><path d="M5 13l4 4L19 7"/></svg><span><strong style="font-size:14px;">+${data.credits} credits added!</strong><br><span style="font-size:11.5px;opacity:.75;">Refreshing balance…</span></span></span>`;
+            showCouponMsg(msgHtml, 'success');
+            document.getElementById('coupon-msg').classList.add('coupon-success');
+            input.value = '';
+            const badge = document.querySelector('.nav-badge');
+            if (badge) { badge.classList.remove('pop'); void badge.offsetWidth; badge.classList.add('pop'); }
+            setTimeout(() => { window.location.reload(); }, 2200);
+        } else {
+            showCouponMsg(data.error || 'Invalid or expired coupon.', 'error');
+        }
+    } catch(e) {
+        showCouponMsg('Network error. Please try again.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M9 14l2 2 4-4"/><path d="M21 12c0 1.2-.504 2.3-1.312 3.1L12 21l-7.688-5.9A4 4 0 013 12V5a2 2 0 012-2h14a2 2 0 012 2v7z"/></svg> Redeem';
+    }
+}
+function showCouponMsg(html, type) {
+    const el = document.getElementById('coupon-msg');
+    const styles = {
+        success: 'background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);color:var(--green);',
+        error:   'background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:var(--red);',
+        warn:    'background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);color:var(--amber);',
+    };
+    el.style.cssText = `display:flex;align-items:center;padding:9px 12px;border-radius:6px;font-size:12.5px;${styles[type]||styles.warn}animation:coupon-msg-in .25s ease;`;
+    el.innerHTML = html;
+}
+document.getElementById('coupon-input').addEventListener('keydown', e => { if (e.key==='Enter') redeemCoupon(); });
+</script>
+{% endblock %}

@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% block title %}Panel Settings — {{ settings.panel_name if settings else 'Hycroe' }}{% endblock %}
+{% block page_title %}Panel Settings{% endblock %}
+{% block content %}
+<div style="max-width:660px;">
+    {% set success = request.query_params.get('success') %}
+    {% set error   = request.query_params.get('error') %}
+    {% if success == 'settings_saved' %}
+    <div class="alert alert-success" style="margin-bottom:14px;">Settings saved successfully.</div>
+    {% endif %}
+    {% if error == 'invalid_webhook_url' %}
+    <div class="alert alert-error" style="margin-bottom:14px;">
+        Invalid Discord webhook URL. It must start with <code>https://discord.com/api/webhooks/</code>.
+    </div>
+    {% endif %}
+    {% if error == 'invalid_notify_user_id' %}
+    <div class="alert alert-error" style="margin-bottom:14px;">
+        Notify User ID must be numeric (e.g. <code>123456789012345678</code>).
+    </div>
+    {% endif %}
+    <form method="post" action="/admin/settings/save" id="settings-form">
+        <!-- Branding -->
+        <div class="card" style="padding:0;margin-bottom:16px;">
+            <div style="padding:14px 18px;border-bottom:1px solid var(--border);">
+                <span class="section-title">Branding</span>
+            </div>
+            <div style="padding:18px;display:flex;flex-direction:column;gap:12px;">
+                <div class="form-group">
+                    <label class="form-label">Panel Name</label>
+                    <input type="text" name="panel_name" class="form-input" value="{{ s.panel_name or 'Hycroe Panel' }}" maxlength="80" required>
+                    <div class="form-hint">Appears in the sidebar, page titles, and browser tab.</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Panel Description</label>
+                    <input type="text" name="panel_description" class="form-input" value="{{ s.panel_description or '' }}" maxlength="200" placeholder="Infrastructure management for your cluster.">
+                    <div class="form-hint">Short description shown on the login page.</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Logo URL <span class="text-muted">(optional)</span></label>
+                    <input type="url" name="logo_url" class="form-input" value="{{ s.logo_url or '' }}" placeholder="https://example.com/logo.png">
+                    <div class="form-hint">Square image (28×28px or larger). Leave blank to use the default grid icon.</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Theme Color</label>
+                    <div style="display:flex;gap:10px;align-items:center;">
+                        <input type="color" name="theme_color" id="color-picker" value="{{ s.theme_color or '#0066FF' }}" style="width:40px;height:36px;padding:2px;border-radius:var(--r);border:1px solid var(--border-2);background:var(--bg-3);cursor:pointer;">
+                        <input type="text" id="color-text" class="form-input" style="flex:1;" value="{{ s.theme_color or '#0066FF' }}" placeholder="#0066FF" pattern="^#[0-9a-fA-F]{3,6}$">
+                    </div>
+                    <div class="form-hint">Hex color used for accent, sidebar active state, and buttons.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Features -->
+        <div class="card" style="padding:0;margin-bottom:16px;">
+            <div style="padding:14px 18px;border-bottom:1px solid var(--border);">
+                <span class="section-title">Features</span>
+            </div>
+            <div style="padding:12px 18px;display:flex;flex-direction:column;gap:8px;">
+                <div class="toggle-wrap">
+                    <div>
+                        <div class="toggle-label">User Registration</div>
+                        <div class="toggle-sub">Allow new accounts to be created via /register</div>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" name="enable_registration" {% if s.enable_registration %}checked{% endif %}>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="toggle-wrap">
+                    <div>
+                        <div class="toggle-label">Discord Login</div>
+                        <div class="toggle-sub">Show "Login with Discord" button and allow Discord OAuth</div>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" name="enable_discord_login" {% if s.enable_discord_login %}checked{% endif %}>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="toggle-wrap">
+                    <div>
+                        <div class="toggle-label">Billing</div>
+                        <div class="toggle-sub">Show billing page and payment options to users</div>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" name="enable_billing" {% if s.enable_billing %}checked{% endif %}>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="toggle-wrap">
+                    <div>
+                        <div class="toggle-label">Require Discord Verification</div>
+                        <div class="toggle-sub">Block VPS deployment for users who haven't connected Discord</div>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" name="require_discord_verify" {% if s.require_discord_verify %}checked{% endif %}>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Integrations -->
+        <div class="card" style="padding:0;margin-bottom:16px;">
+            <div style="padding:14px 18px;border-bottom:1px solid var(--border);">
+                <span class="section-title">Integrations</span>
+            </div>
+            <div style="padding:18px;display:flex;flex-direction:column;gap:12px;">
+
+                <!-- Ticket / billing webhook -->
+                <div class="form-group">
+                    <label class="form-label">Ticket &amp; Billing Webhook URL</label>
+                    <input type="url" name="discord_webhook_url" class="form-input"
+                           value="{{ s.discord_webhook_url or '' }}"
+                           placeholder="https://discord.com/api/webhooks/...">
+                    <div class="form-hint">Fires on new tickets and credit purchases. Leave blank to disable.</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Notify User ID <span class="text-muted">(optional)</span></label>
+                    <input type="text" name="notify_user_id" class="form-input"
+                           value="{{ s.notify_user_id or '' }}"
+                           placeholder="e.g. 123456789012345678">
+                    <div class="form-hint">Numeric user ID to @mention in ticket notifications.</div>
+                </div>
+
+                <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:2px;">
+                    <div style="font-size:11px;color:var(--text-3);font-weight:600;text-transform:uppercase;letter-spacing:.09em;margin-bottom:10px;">Split Webhook Channels</div>
+
+                    <!-- Node events webhook -->
+                    <div class="form-group" style="margin-bottom:12px;">
+                        <label class="form-label">Node Events Webhook URL</label>
+                        <input type="url" name="node_webhook_url" class="form-input"
+                               value="{{ s.node_webhook_url or '' }}"
+                               placeholder="https://discord.com/api/webhooks/...">
+                        <div class="form-hint">Fires on node start, offline, maintenance, added, removed events.</div>
+                    </div>
+
+                    <!-- Admin log webhook -->
+                    <div class="form-group">
+                        <label class="form-label">Admin Log Webhook URL</label>
+                        <input type="url" name="admin_log_webhook_url" class="form-input"
+                               value="{{ s.admin_log_webhook_url or '' }}"
+                               placeholder="https://discord.com/api/webhooks/...">
+                        <div class="form-hint">Fires on user actions, VPS create/delete, and admin operations.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Announcement -->
+        <div class="card" style="padding:0;margin-bottom:16px;">
+            <div style="padding:14px 18px;border-bottom:1px solid var(--border);">
+                <span class="section-title">Announcement</span>
+            </div>
+            <div style="padding:18px;">
+                <div class="form-group">
+                    <label class="form-label">Global Announcement Banner <span class="text-muted">(optional)</span></label>
+                    <textarea name="announcement" class="form-input" rows="3" maxlength="500"
+                              placeholder="e.g. Scheduled maintenance on Saturday 02:00–04:00 UTC"
+                              style="resize:vertical;">{{ s.announcement or '' }}</textarea>
+                    <div class="form-hint">Shown as a yellow banner on the dashboard for all users. Leave blank to hide.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Error alerts for new webhook fields -->
+        {% if error == 'invalid_node_webhook_url' %}
+        <div class="alert alert-error" style="margin-bottom:14px;">Invalid Node Events webhook URL.</div>
+        {% endif %}
+        {% if error == 'invalid_admin_log_webhook_url' %}
+        <div class="alert alert-error" style="margin-bottom:14px;">Invalid Admin Log webhook URL.</div>
+        {% endif %}
+
+        <!-- Save -->
+        <div style="display:flex;justify-content:flex-end;">
+            <button type="submit" class="btn btn-primary">
+                <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M5 13l4 4L19 7"/></svg>
+                Save Settings
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const picker = document.getElementById('color-picker');
+const textIn = document.getElementById('color-text');
+
+function applyThemePreview(color) {
+    if (!/^#[0-9a-fA-F]{3,6}$/.test(color)) return;
+    const root = document.documentElement;
+    root.style.setProperty('--blue', color);
+    // Use a quick brightness calculation for blue-2 (lighter) and blue-dim (transparent)
+    root.style.setProperty('--blue-dim',
+        `color-mix(in srgb, ${color} 12%, transparent)`);
+    root.style.setProperty('--blue-2',
+        `color-mix(in srgb, ${color} 80%, white 20%)`);
+}
+
+picker.addEventListener('input', () => {
+    textIn.value = picker.value;
+    applyThemePreview(picker.value);
+});
+
+textIn.addEventListener('input', () => {
+    const v = textIn.value.trim();
+    if (/^#[0-9a-fA-F]{3,6}$/.test(v)) {
+        picker.value = v;
+        applyThemePreview(v);
+    }
+});
+</script>
+{% endblock %}

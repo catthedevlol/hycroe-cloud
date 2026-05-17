@@ -1,0 +1,748 @@
+{% extends "base.html" %}
+{% block title %}Admin — Hycroe{% endblock %}
+{% block page_title %}Admin{% endblock %}
+{% block topbar_extra %}
+<div class="topbar-right">
+    <span class="badge" style="color:var(--amber);background:var(--amber-dim);border:1px solid rgba(245,158,11,.2);font-family:'Geist Mono',monospace;">superuser</span>
+    <button onclick="document.getElementById('create-user-modal').classList.add('open')" class="btn btn-ghost btn-sm">+ User</button>
+    <button onclick="document.getElementById('create-coupon-modal').classList.add('open')" class="btn btn-ghost btn-sm">+ Coupon</button>
+    <button onclick="document.getElementById('create-plan-modal').classList.add('open')" class="btn btn-ghost btn-sm">+ Plan</button>
+    <form method="post" action="/admin/sync-nodes" style="display:inline;">
+        <button class="btn btn-ghost btn-sm" title="Remove ghost VPS records that no longer exist on nodes">
+            <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+            Sync Nodes
+        </button>
+    </form>
+    <button onclick="document.getElementById('create-vps-modal').classList.add('open')" class="btn btn-primary btn-sm">+ VPS</button>
+</div>
+{% endblock %}
+{% block content %}
+
+<!-- Stats -->
+<div class="stat-grid" style="margin-bottom:20px;">
+    <div class="stat-card"><div class="stat-label">Users</div><div class="stat-value">{{ stats.total_users }}</div></div>
+    <div class="stat-card"><div class="stat-label">Total VPS</div><div class="stat-value">{{ stats.total_vps }}</div></div>
+    <div class="stat-card"><div class="stat-label">Running</div><div class="stat-value c-green">{{ stats.running_vps }}</div></div>
+    <div class="stat-card"><div class="stat-label">Nodes</div><div class="stat-value">{{ stats.total_nodes }}</div></div>
+    <div class="stat-card"><div class="stat-label">Online</div><div class="stat-value c-green">{{ stats.online_nodes }}</div></div>
+</div>
+
+<!-- Tabs -->
+<div class="tab-bar" style="margin-bottom:16px;">
+    {% for tab_id, tab_label in [('users','Users'),('vps','All VPS'),('tx','Transactions'),('coupons','Coupons'),('plans','Plans')] %}
+    <button onclick="switchTab('{{ tab_id }}')" id="tab-{{ tab_id }}" class="tab-btn {% if tab_id == 'users' %}active{% endif %}">{{ tab_label }}</button>
+    {% endfor %}
+</div>
+
+<!-- Users -->
+<div id="panel-users" class="tab-panel">
+    <div class="card" style="padding:0;">
+        <div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+            <span class="section-title">All Users</span>
+            <input type="text" id="user-search" onkeyup="filterTable('user-table', this.value)"
+                   placeholder="Search…" class="form-input" style="width:200px;padding:5px 10px;font-size:12px;">
+        </div>
+        <div class="table-wrap">
+        <table class="data-table" id="user-table">
+            <thead><tr><th>User</th><th>Credits</th><th>VPS</th><th>Status</th><th>Joined</th><th>Actions</th></tr></thead>
+            <tbody>
+                {% for u in users %}
+                <tr>
+                    <td>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            {% if u.avatar_url %}
+                            <img src="{{ u.avatar_url }}" style="width:26px;height:26px;border-radius:50%;object-fit:cover;">
+                            {% else %}
+                            <div style="width:26px;height:26px;border-radius:50%;background:var(--blue);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:white;flex-shrink:0;">{{ u.username[0].upper() }}</div>
+                            {% endif %}
+                            <div>
+                                <div style="font-size:13px;font-weight:600;color:var(--text);">{{ u.username }}</div>
+                                {% if u.email %}<div class="text-muted" style="font-size:11px;">{{ u.email }}</div>{% endif %}
+                            </div>
+                        </div>
+                    </td>
+                    <td class="mono text-blue" style="font-weight:600;">{{ u.credits }}</td>
+                    <td class="mono text-muted">{{ u.vps|length }}</td>
+                    <td>
+                        {% if u.is_suspended %}<span class="badge badge-suspended"><span class="badge-dot"></span>suspended</span>
+                        {% elif u.is_admin %}<span class="badge" style="color:var(--amber);background:var(--amber-dim);border:1px solid rgba(245,158,11,.18);">admin</span>
+                        {% else %}<span class="badge badge-running"><span class="badge-dot"></span>active</span>{% endif %}
+                    </td>
+                    <td class="mono text-muted" style="font-size:11px;">{{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '—' }}</td>
+                    <td>
+                        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                            <button onclick="openCreditsModal({{ u.id }}, '{{ u.username }}')" class="btn btn-ghost btn-xs" style="color:var(--blue-2);border-color:color-mix(in srgb,var(--blue) 28%,transparent);">Credits</button>
+                            {% if u.id != user.id %}
+                            <form method="post" action="/admin/toggle-admin" style="display:inline;">
+                                <input type="hidden" name="target_user_id" value="{{ u.id }}">
+                                <button class="btn btn-ghost btn-xs" style="color:var(--amber);border-color:rgba(245,158,11,.2);">{% if u.is_admin %}Demote{% else %}Promote{% endif %}</button>
+                            </form>
+                            <form method="post" action="/admin/suspend" style="display:inline;">
+                                <input type="hidden" name="target_user_id" value="{{ u.id }}">
+                                <input type="hidden" name="reason" value="Administrative action">
+                                <button class="btn btn-ghost btn-xs" style="color:{% if u.is_suspended %}var(--green){% else %}var(--orange){% endif %};border-color:{% if u.is_suspended %}rgba(34,197,94,.2){% else %}rgba(249,115,22,.2){% endif %};">{% if u.is_suspended %}Unsuspend{% else %}Suspend{% endif %}</button>
+                            </form>
+                            <button onclick="openCreateVpsForUser({{ u.id }}, '{{ u.username }}')" class="btn btn-ghost btn-xs">+ VPS</button>
+                            <form method="post" action="/admin/delete-user" style="display:inline;" onsubmit="return confirm('Delete {{ u.username }} and ALL their VPS?')">
+                                <input type="hidden" name="target_user_id" value="{{ u.id }}">
+                                <button class="btn btn-danger btn-xs">Delete</button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+</div>
+
+<!-- VPS -->
+<div id="panel-vps" class="tab-panel" style="display:none;">
+    <div class="card" style="padding:0;">
+        <div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+            <span class="section-title">All Instances</span>
+            <input type="text" id="vps-search" onkeyup="filterTable('vps-table', this.value)"
+                   placeholder="Search…" class="form-input" style="width:200px;padding:5px 10px;font-size:12px;">
+        </div>
+        <div class="table-wrap">
+        <table class="data-table" id="vps-table">
+            <thead><tr><th>Name</th><th>Type</th><th>Owner</th><th>Specs</th><th>Node</th><th>IP</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+                {% for v in vps_data %}
+                <tr style="{% if v.suspended %}opacity:0.55{% endif %}">
+                    <td>
+                        <div class="mono" style="font-size:13px;font-weight:600;color:var(--text);">{{ v.name }}</div>
+                        <div class="text-muted" style="font-size:11px;">{{ v.os_image }}</div>
+                    </td>
+                    <td>
+                        {% if v.instance_type == 'vm' %}
+                        <span class="chip" style="background:var(--purple-dim);color:var(--purple);border:1px solid rgba(168,85,247,.2);">VM</span>
+                        {% else %}
+                        <span class="chip chip-incus">CT</span>
+                        {% endif %}
+                    </td>
+                    <td style="color:var(--blue-2);font-size:12.5px;">{{ v.owner }}</td>
+                    <td class="mono text-muted" style="font-size:11.5px;">{{ v.cpu }}cpu · {{ v.ram }}MB · {{ v.disk_gb }}GB</td>
+                    <td class="mono text-muted" style="font-size:11.5px;">{{ v.node }}</td>
+                    <td class="mono text-muted" style="font-size:11.5px;">{{ v.ipv4 }}</td>
+                    <td>
+                        <span class="badge badge-{{ v.status }}"><span class="badge-dot"></span>{{ v.status }}</span>
+                        {% if v.suspended %}<span class="badge badge-suspended" style="margin-left:4px;"><span class="badge-dot"></span>susp</span>{% endif %}
+                    </td>
+                    <td>
+                        <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                            <a href="/vps/{{ v.name }}" class="btn btn-ghost btn-xs" style="color:var(--blue-2);border-color:color-mix(in srgb,var(--blue) 25%,transparent);">Manage</a>
+                            <button onclick="openAdminEditModal({{ v.id }}, '{{ v.name }}', {{ v.ram }}, {{ v.cpu }}, {{ v.disk_gb }})" class="btn btn-ghost btn-xs">Edit</button>
+                            {% if v.status != 'running' %}
+                            <form method="post" action="/admin/vps/action" style="display:inline;">
+                                <input type="hidden" name="vps_id" value="{{ v.id }}">
+                                <input type="hidden" name="action" value="start">
+                                <button class="btn btn-ghost btn-xs" style="color:var(--green);border-color:rgba(34,197,94,.2);">Start</button>
+                            </form>
+                            {% endif %}
+                            {% if v.status == 'running' %}
+                            <form method="post" action="/admin/vps/action" style="display:inline;">
+                                <input type="hidden" name="vps_id" value="{{ v.id }}">
+                                <input type="hidden" name="action" value="stop">
+                                <button class="btn btn-ghost btn-xs" style="color:var(--amber);border-color:rgba(245,158,11,.2);">Shutdown</button>
+                            </form>
+                            <form method="post" action="/admin/vps/action" style="display:inline;">
+                                <input type="hidden" name="vps_id" value="{{ v.id }}">
+                                <input type="hidden" name="action" value="restart">
+                                <button class="btn btn-ghost btn-xs">Reboot</button>
+                            </form>
+                            {% endif %}
+                            <button onclick="openAdminRebuildModal({{ v.id }}, '{{ v.name }}')" class="btn btn-ghost btn-xs">Reinstall</button>
+                            <form method="post" action="/admin/suspend-vps" style="display:inline;">
+                                <input type="hidden" name="vps_id" value="{{ v.id }}">
+                                <button class="btn btn-ghost btn-xs" style="color:var(--orange);border-color:rgba(249,115,22,.2);">{% if v.suspended %}Unsuspend{% else %}Suspend{% endif %}</button>
+                            </form>
+                            <form method="post" action="/admin/vps/action" style="display:inline;" onsubmit="return confirm('Delete VPS {{ v.name }}?')">
+                                <input type="hidden" name="vps_id" value="{{ v.id }}">
+                                <input type="hidden" name="action" value="delete">
+                                <button class="btn btn-danger btn-xs">Delete</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+</div>
+
+<!-- Transactions -->
+<div id="panel-tx" class="tab-panel" style="display:none;">
+    <div class="card" style="padding:0;">
+        <div class="table-wrap">
+        <table class="data-table">
+            <thead><tr><th>User</th><th>Amount</th><th>Description</th><th>Time</th></tr></thead>
+            <tbody>
+                {% for tx in recent_tx %}
+                <tr>
+                    <td class="mono text-muted">{{ tx.user.username if tx.user else '?' }}</td>
+                    <td class="mono" style="font-weight:600;{% if tx.amount > 0 %}color:var(--green){% else %}color:var(--red){% endif %};">{{ '+' if tx.amount > 0 else '' }}{{ tx.amount }}cr</td>
+                    <td class="text-muted">{{ tx.description or '—' }}</td>
+                    <td class="mono text-muted" style="font-size:11px;">{{ tx.created_at.strftime('%Y-%m-%d %H:%M') if tx.created_at else '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+</div>
+
+<!-- Coupons -->
+<div id="panel-coupons" class="tab-panel" style="display:none;">
+    <div class="card" style="padding:0;">
+        <div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+            <span class="section-title">Coupons</span>
+            <button onclick="document.getElementById('create-coupon-modal').classList.add('open')" class="btn btn-ghost btn-sm">+ Create Coupon</button>
+        </div>
+        {% if coupons %}
+        <div class="table-wrap">
+        <table class="data-table">
+            <thead><tr><th>Code</th><th>Credits</th><th>Uses</th><th>Status</th><th>Expires</th><th>Created</th><th>Actions</th></tr></thead>
+            <tbody>
+                {% for c in coupons %}
+                <tr>
+                    <td><span class="mono" style="font-size:12.5px;font-weight:600;color:var(--text);letter-spacing:.04em;">{{ c.code }}</span></td>
+                    <td class="mono" style="color:var(--blue-2);font-weight:600;">+{{ c.credits }}</td>
+                    <td class="mono text-muted" style="font-size:12px;">
+                        {{ c.times_used }}&nbsp;/&nbsp;{% if c.max_uses %}{{ c.max_uses }}{% else %}<span title="Unlimited">∞</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if not c.is_active %}<span class="badge badge-stopped"><span class="badge-dot"></span>disabled</span>
+                        {% elif c.max_uses and c.times_used >= c.max_uses %}<span class="badge badge-error"><span class="badge-dot"></span>exhausted</span>
+                        {% elif c.expires_at and c.expires_at < now %}<span class="badge badge-error"><span class="badge-dot"></span>expired</span>
+                        {% else %}<span class="badge badge-running"><span class="badge-dot"></span>active</span>{% endif %}
+                    </td>
+                    <td class="mono text-muted" style="font-size:11px;">{{ c.expires_at.strftime('%Y-%m-%d') if c.expires_at else '—' }}</td>
+                    <td class="mono text-muted" style="font-size:11px;">{{ c.created_at.strftime('%Y-%m-%d') if c.created_at else '—' }}</td>
+                    <td>
+                        <div style="display:flex;gap:4px;">
+                            <form method="post" action="/admin/coupon/toggle" style="display:inline;">
+                                <input type="hidden" name="coupon_id" value="{{ c.id }}">
+                                <button class="btn btn-ghost btn-xs" style="color:var(--amber);border-color:rgba(245,158,11,.2);">{% if c.is_active %}Disable{% else %}Enable{% endif %}</button>
+                            </form>
+                            <form method="post" action="/admin/coupon/delete" style="display:inline;" onsubmit="return confirm('Delete coupon {{ c.code }}?')">
+                                <input type="hidden" name="coupon_id" value="{{ c.id }}">
+                                <button class="btn btn-danger btn-xs">Delete</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <div class="empty-state" style="padding:52px 24px;">
+            <div class="empty-icon" style="width:48px;height:48px;border-radius:var(--r-xl);background:var(--blue-dim);border-color:color-mix(in srgb,var(--blue) 20%,transparent);">
+                <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="var(--blue-2)" stroke-width="1.5"><path d="M9 14l2 2 4-4"/><path d="M21 12c0 1.2-.504 2.3-1.312 3.1L12 21l-7.688-5.9A4 4 0 013 12V5a2 2 0 012-2h14a2 2 0 012 2v7z"/></svg>
+            </div>
+            <div class="empty-title" style="font-size:15px;margin-bottom:5px;">No coupons yet</div>
+            <div class="empty-desc" style="font-size:12.5px;line-height:1.6;">Create discount coupons to give users free credits when they sign up or top up.</div>
+            <button onclick="document.getElementById('create-coupon-modal').classList.add('open')" class="btn btn-primary btn-sm">
+                <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                Create Coupon
+            </button>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Plans -->
+<div id="panel-plans" class="tab-panel" style="display:none;">
+    <div class="card" style="padding:0;">
+        <div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+            <span class="section-title">VPS Plans</span>
+            <button onclick="document.getElementById('create-plan-modal').classList.add('open')" class="btn btn-ghost btn-sm">+ Create Plan</button>
+        </div>
+        {% if plans %}
+        <div class="table-wrap">
+        <table class="data-table">
+            <thead><tr><th>Plan</th><th>RAM</th><th>CPU</th><th>Disk</th><th>Credits</th><th>Type</th><th>Location</th><th>Node</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+                {% for pl in plans %}
+                <tr style="{% if not pl.is_active %}opacity:0.55{% endif %}">
+                    <td style="font-size:13px;font-weight:600;color:var(--text);">{{ pl.name }}</td>
+                    <td class="mono text-muted">{{ pl.display_ram }}</td>
+                    <td class="mono text-muted">{{ pl.cpu }} vCPU</td>
+                    <td class="mono text-muted">{{ pl.disk_gb }} GB</td>
+                    <td class="mono" style="color:var(--blue-2);font-weight:600;">{{ pl.credits_cost }}</td>
+                    <td style="font-size:11px;">
+                        {% if pl.instance_type == 'vm' %}
+                        <span class="chip" style="background:var(--purple-dim);color:var(--purple);border:1px solid rgba(168,85,247,.2);">VM</span>
+                        {% else %}
+                        <span class="chip" style="background:var(--bg-3);color:var(--text-3);border:1px solid var(--border);">CT</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-muted" style="font-size:12px;">{{ pl.location or '—' }}</td>
+                    <td class="mono text-muted" style="font-size:11px;">{% if pl.node %}{{ pl.node.display_name or pl.node.name }}{% else %}Auto{% endif %}</td>
+                    <td>
+                        {% if pl.is_active %}<span class="badge badge-running"><span class="badge-dot"></span>active</span>
+                        {% else %}<span class="badge badge-stopped"><span class="badge-dot"></span>hidden</span>{% endif %}
+                    </td>
+                    <td>
+                        <div style="display:flex;gap:4px;">
+                            <form method="post" action="/admin/plan/toggle" style="display:inline;">
+                                <input type="hidden" name="plan_id" value="{{ pl.id }}">
+                                <button class="btn btn-ghost btn-xs" style="color:var(--amber);border-color:rgba(245,158,11,.2);">{% if pl.is_active %}Hide{% else %}Show{% endif %}</button>
+                            </form>
+                            <form method="post" action="/admin/plan/delete" style="display:inline;" onsubmit="return confirm('Delete plan {{ pl.name }}?')">
+                                <input type="hidden" name="plan_id" value="{{ pl.id }}">
+                                <button class="btn btn-danger btn-xs">Delete</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <div class="empty-state" style="padding:52px 24px;">
+            <div class="empty-icon" style="width:48px;height:48px;border-radius:var(--r-xl);background:var(--green-dim);border-color:rgba(34,197,94,.2);">
+                <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="var(--green)" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+            </div>
+            <div class="empty-title" style="font-size:15px;margin-bottom:5px;">No plans configured</div>
+            <div class="empty-desc" style="font-size:12.5px;line-height:1.6;">Create plans so users can deploy instances with a single click — no manual config needed.</div>
+            <button onclick="document.getElementById('create-plan-modal').classList.add('open')" class="btn btn-primary btn-sm">
+                <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                Create your first Plan
+            </button>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ── Modals ──────────────────────────────────────────────────────────────── -->
+
+<!-- Create User Modal -->
+<div class="modal-backdrop" id="create-user-modal" onclick="if(event.target===this)this.classList.remove('open')">
+    <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span class="modal-title">Create User</span>
+            <button class="modal-close" onclick="document.getElementById('create-user-modal').classList.remove('open')"><svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+        </div>
+        <form method="post" action="/admin/create-user">
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;">
+                <div class="form-grid form-grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Username</label>
+                        <input type="text" name="username" class="form-input" placeholder="johndoe" required minlength="3">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email <span class="text-muted">(optional)</span></label>
+                        <input type="email" name="email" class="form-input" placeholder="john@example.com">
+                    </div>
+                </div>
+                <div class="form-grid form-grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Password</label>
+                        <input type="password" name="password" class="form-input" placeholder="Min 8 chars" required minlength="8">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Starting Credits</label>
+                        <input type="number" name="credits" class="form-input" value="0" min="0">
+                    </div>
+                </div>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                    <input type="checkbox" name="is_admin" value="on" style="width:15px;height:15px;accent-color:var(--blue);">
+                    <span style="font-size:13px;color:var(--amber);">Grant admin access</span>
+                </label>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="document.getElementById('create-user-modal').classList.remove('open')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create User</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Create Coupon Modal -->
+<div class="modal-backdrop" id="create-coupon-modal" onclick="if(event.target===this)this.classList.remove('open')">
+    <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span class="modal-title">Create Coupon</span>
+            <button class="modal-close" onclick="document.getElementById('create-coupon-modal').classList.remove('open')"><svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+        </div>
+        <form method="post" action="/admin/coupon/create">
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
+                <div class="form-grid form-grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Coupon Code</label>
+                        <input type="text" name="code" class="form-input mono" placeholder="LAUNCH-2025"
+                               required minlength="3" maxlength="64"
+                               oninput="this.value=this.value.toUpperCase()"
+                               style="letter-spacing:.05em;">
+                        <div class="form-hint">Alphanumeric + hyphens only</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Credits Amount</label>
+                        <input type="number" name="credits" class="form-input" placeholder="500" min="1" max="1000000" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Usage Limit</label>
+                    <div style="display:flex;flex-direction:column;gap:6px;margin-top:2px;">
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:7px 10px;border-radius:var(--r);border:1px solid var(--border);transition:border-color .12s;" class="uses-radio-row">
+                            <input type="radio" name="max_uses" value="0" checked onchange="handleUsesRadio(this)" style="accent-color:var(--blue);">
+                            <span style="font-size:13px;">Unlimited uses</span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:7px 10px;border-radius:var(--r);border:1px solid var(--border);transition:border-color .12s;" class="uses-radio-row">
+                            <input type="radio" name="max_uses" value="1" onchange="handleUsesRadio(this)" style="accent-color:var(--blue);">
+                            <span style="font-size:13px;">One-time use <span class="text-muted">(1 user)</span></span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:7px 10px;border-radius:var(--r);border:1px solid var(--border);transition:border-color .12s;" class="uses-radio-row">
+                            <input type="radio" name="max_uses" value="2" onchange="handleUsesRadio(this)" style="accent-color:var(--blue);">
+                            <span style="font-size:13px;">Two users</span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:7px 10px;border-radius:var(--r);border:1px solid var(--border);transition:border-color .12s;" class="uses-radio-row" id="custom-uses-row">
+                            <input type="radio" name="max_uses" value="custom" onchange="handleUsesRadio(this)" style="accent-color:var(--blue);">
+                            <span style="font-size:13px;">Custom</span>
+                            <input type="number" id="custom-uses-input" name="_custom_uses_display" min="3" placeholder="e.g. 50"
+                                   class="form-input" style="width:90px;padding:4px 8px;font-size:12px;margin-left:auto;display:none;" oninput="syncCustomUses(this)">
+                        </label>
+                    </div>
+                    <!-- Hidden real field for custom path -->
+                    <input type="hidden" name="_uses_override" id="uses-override-hidden" value="">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Expiry Date <span class="text-muted">(optional)</span></label>
+                    <input type="datetime-local" name="expires_at" class="form-input">
+                    <div class="form-hint">Leave blank for no expiry</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="document.getElementById('create-coupon-modal').classList.remove('open')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create Coupon</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Create Plan Modal -->
+<div class="modal-backdrop" id="create-plan-modal" onclick="if(event.target===this)this.classList.remove('open')">
+    <div class="modal modal-lg" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span class="modal-title">Create VPS Plan</span>
+            <button class="modal-close" onclick="document.getElementById('create-plan-modal').classList.remove('open')"><svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+        </div>
+        <form method="post" action="/admin/plan/create">
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;">
+                <div class="form-group">
+                    <label class="form-label">Plan Name</label>
+                    <input type="text" name="name" class="form-input" placeholder="Starter VPS" required maxlength="80">
+                </div>
+                <div class="form-grid form-grid-3">
+                    <div class="form-group">
+                        <label class="form-label">RAM (MB)</label>
+                        <input type="number" name="ram_mb" class="form-input" value="1024" min="128" max="262144" required placeholder="e.g. 2048">
+                        <div class="form-hint">128 MB – 256 GB</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">vCPU</label>
+                        <input type="number" name="cpu" class="form-input" value="1" min="1" max="128" required placeholder="e.g. 2">
+                        <div class="form-hint">1 – 128 cores</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Disk (GB)</label>
+                        <input type="number" name="disk_gb" class="form-input" value="20" min="5" max="10000" required>
+                    </div>
+                </div>
+                <div class="form-grid form-grid-3">
+                    <div class="form-group">
+                        <label class="form-label">Credits Cost</label>
+                        <input type="number" name="credits_cost" class="form-input" value="120" min="1" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Instance Type</label>
+                        <select name="instance_type" class="form-input">
+                            <option value="container" selected>Container</option>
+                            <option value="vm">Virtual Machine (VM)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Location <span class="text-muted">(optional)</span></label>
+                        <input type="text" name="location" class="form-input" placeholder="US-East">
+                    </div>
+                </div>
+                <div class="form-grid form-grid-3">
+                    <div class="form-group">
+                        <label class="form-label">Node</label>
+                        <select name="node_id" class="form-input">
+                            <option value="">Auto-select</option>
+                            {% for n in nodes %}
+                            <option value="{{ n.id }}">{{ n.display_name or n.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="document.getElementById('create-plan-modal').classList.remove('open')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create Plan</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Create VPS Modal -->
+<div class="modal-backdrop" id="create-vps-modal" onclick="if(event.target===this)this.classList.remove('open')">
+    <div class="modal modal-lg" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span class="modal-title">Create VPS for User</span>
+            <button class="modal-close" onclick="document.getElementById('create-vps-modal').classList.remove('open')"><svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+        </div>
+        <form method="post" action="/admin/vps/create">
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;">
+                <div class="form-grid form-grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Owner</label>
+                        <select name="target_user_id" id="vps-owner-select" class="form-input" required>
+                            <option value="">Select user…</option>
+                            {% for u in users %}<option value="{{ u.id }}">{{ u.username }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Instance Name</label>
+                        <input type="text" name="name" class="form-input" placeholder="my-server" required pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Instance Type</label>
+                    <div style="display:flex;gap:8px;">
+                        <label style="flex:1;display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:var(--r);border:1px solid var(--border);background:var(--bg-3);cursor:pointer;">
+                            <input type="radio" name="instance_type" value="container" checked style="accent-color:var(--blue);">
+                            <span style="font-size:13px;font-weight:500;">Container</span>
+                        </label>
+                        <label style="flex:1;display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:var(--r);border:1px solid var(--border);background:var(--bg-3);cursor:pointer;">
+                            <input type="radio" name="instance_type" value="vm" style="accent-color:var(--blue);">
+                            <span style="font-size:13px;font-weight:500;">Virtual Machine</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="form-grid form-grid-3">
+                    <div class="form-group">
+                        <label class="form-label">RAM (MB)</label>
+                        <input type="number" name="ram" class="form-input" value="1024" min="128" max="131072" step="128" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">CPU Cores</label>
+                        <input type="number" name="cpu" class="form-input" value="1" min="1" max="64" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Disk (GB)</label>
+                        <input type="number" name="disk_gb" class="form-input" value="20" min="5" max="2000" required>
+                    </div>
+                </div>
+                <div class="form-grid form-grid-2">
+                    <div class="form-group">
+                        <label class="form-label">OS Image</label>
+                        <select name="os_image" class="form-input">
+                            {% for img in os_images %}<option value="{{ img }}" {% if img == 'ubuntu/22.04' %}selected{% endif %}>{{ img }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Node</label>
+                        <select name="node_id" class="form-input">
+                            <option value="">Auto-select</option>
+                            {% for n in nodes %}<option value="{{ n.id }}">{{ n.display_name or n.name }}</option>{% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="document.getElementById('create-vps-modal').classList.remove('open')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Deploy Instance</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Credits Modal -->
+<div class="modal-backdrop" id="credits-modal" onclick="if(event.target===this)this.classList.remove('open')">
+    <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span class="modal-title">Adjust Credits</span>
+            <button class="modal-close" onclick="document.getElementById('credits-modal').classList.remove('open')"><svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+        </div>
+        <form method="post" action="/admin/credits">
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;">
+                <p style="font-size:13px;color:var(--text-3);">Adjusting credits for <span id="credits-username" style="color:var(--blue-2);font-weight:600;"></span></p>
+                <input type="hidden" name="target_user_id" id="credits-user-id">
+                <div class="form-group">
+                    <label class="form-label">Amount (negative to deduct)</label>
+                    <input type="number" name="amount" class="form-input" placeholder="e.g. 500 or -100" required>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="document.getElementById('credits-modal').classList.remove('open')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Apply</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Admin Rebuild Modal -->
+<div class="modal-backdrop" id="admin-rebuild-modal" onclick="if(event.target===this)this.classList.remove('open')">
+    <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span class="modal-title">Reinstall OS</span>
+            <button class="modal-close" onclick="document.getElementById('admin-rebuild-modal').classList.remove('open')"><svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+        </div>
+        <form method="post" action="/admin/vps/rebuild">
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;">
+                <div class="alert alert-error">
+                    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px;"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                    All data on <span id="rebuild-vps-name" style="font-family:'Geist Mono',monospace;font-weight:700;"></span> will be erased.
+                </div>
+                <input type="hidden" name="vps_id" id="rebuild-vps-id">
+                <div class="form-group">
+                    <label class="form-label">New OS Image</label>
+                    <select name="os_image" class="form-input">
+                        {% for img in os_images %}<option value="{{ img }}" {% if img == 'ubuntu/22.04' %}selected{% endif %}>{{ img }}</option>{% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="document.getElementById('admin-rebuild-modal').classList.remove('open')">Cancel</button>
+                <button type="submit" class="btn btn-danger">Reinstall Now</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Admin Edit VPS Modal -->
+<div class="modal-backdrop" id="admin-edit-vps-modal" onclick="if(event.target===this)this.classList.remove('open')">
+    <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span class="modal-title">Edit VPS — <span id="edit-vps-name-label" style="font-family:'Geist Mono',monospace;color:var(--blue-2);"></span></span>
+            <button class="modal-close" onclick="document.getElementById('admin-edit-vps-modal').classList.remove('open')">
+                <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <form method="post" action="/admin/vps/edit">
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
+                <input type="hidden" name="vps_id" id="edit-vps-id">
+                <div class="alert alert-info">
+                    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+                    Changes to CPU and RAM are applied live via <span class="mono" style="font-size:11px;">incus config set</span>. The instance does not need to be restarted.
+                </div>
+                <div class="form-grid form-grid-3">
+                    <div class="form-group">
+                        <label class="form-label">RAM (MB)</label>
+                        <input type="number" name="ram" id="edit-vps-ram" class="form-input"
+                               min="128" max="131072" step="128" required>
+                        <div class="form-hint">Min 128 MB</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">CPU Cores</label>
+                        <input type="number" name="cpu" id="edit-vps-cpu" class="form-input"
+                               min="1" max="64" required>
+                        <div class="form-hint">1–64 vCPUs</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Disk (GB)</label>
+                        <input type="number" name="disk_gb" id="edit-vps-disk" class="form-input"
+                               min="5" max="2000" required>
+                        <div class="form-hint">DB record only</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="document.getElementById('admin-edit-vps-modal').classList.remove('open')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+const now = new Date();
+
+function switchTab(id) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('panel-' + id).style.display = '';
+    document.getElementById('tab-' + id).classList.add('active');
+    const u = new URL(location.href);
+    u.searchParams.set('tab', id);
+    history.replaceState({}, '', u);
+}
+
+function openCreditsModal(userId, username) {
+    document.getElementById('credits-user-id').value = userId;
+    document.getElementById('credits-username').textContent = username;
+    document.getElementById('credits-modal').classList.add('open');
+}
+function openCreateVpsForUser(userId) {
+    const sel = document.getElementById('vps-owner-select');
+    if (sel) sel.value = userId;
+    document.getElementById('create-vps-modal').classList.add('open');
+}
+function openAdminEditModal(vpsId, vpsName, ram, cpu, disk) {
+    document.getElementById('edit-vps-id').value    = vpsId;
+    document.getElementById('edit-vps-name-label').textContent = vpsName;
+    document.getElementById('edit-vps-ram').value   = ram;
+    document.getElementById('edit-vps-cpu').value   = cpu;
+    document.getElementById('edit-vps-disk').value  = disk;
+    document.getElementById('admin-edit-vps-modal').classList.add('open');
+}
+function openAdminRebuildModal(vpsId, vpsName) {
+    document.getElementById('rebuild-vps-id').value = vpsId;
+    document.getElementById('rebuild-vps-name').textContent = vpsName;
+    document.getElementById('admin-rebuild-modal').classList.add('open');
+}
+function filterTable(tableId, query) {
+    const q = query.toLowerCase();
+    document.querySelectorAll('#' + tableId + ' tbody tr').forEach(row => {
+        row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+}
+
+// Coupon usage-limit radio handler
+function handleUsesRadio(radio) {
+    const customInput = document.getElementById('custom-uses-input');
+    const allRadioRows = document.querySelectorAll('.uses-radio-row');
+    allRadioRows.forEach(r => r.style.borderColor = '');
+    radio.closest('.uses-radio-row').style.borderColor = 'var(--blue)';
+    if (radio.value === 'custom') {
+        customInput.style.display = '';
+        customInput.required = true;
+    } else {
+        customInput.style.display = 'none';
+        customInput.required = false;
+        // Patch: override the form's max_uses with the actual numeric value
+        radio.form.querySelector('[name="max_uses"]').value = radio.value;
+    }
+}
+function syncCustomUses(input) {
+    // Replace the radio "custom" value dynamically before submit
+    const form = input.closest('form');
+    let radios = form.querySelectorAll('input[name="max_uses"]');
+    radios.forEach(r => { if (r.value === 'custom') r.value = input.value || 'custom'; });
+}
+// Fix: on submit, if custom radio selected, set max_uses to the input value
+document.querySelector('#create-coupon-modal form').addEventListener('submit', function(e) {
+    const customInput = document.getElementById('custom-uses-input');
+    if (customInput.style.display !== 'none') {
+        const v = parseInt(customInput.value);
+        if (!v || v < 1) { e.preventDefault(); alert('Enter a valid custom usage limit.'); return; }
+        // set the selected radio value to the actual number
+        this.querySelectorAll('input[name="max_uses"]').forEach(r => { if (r.checked) r.value = v; });
+    }
+});
+
+// Open correct tab from URL
+const urlTab = new URLSearchParams(location.search).get('tab');
+if (urlTab) switchTab(urlTab);
+</script>
+{% endblock %}

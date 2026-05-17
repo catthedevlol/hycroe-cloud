@@ -1,0 +1,471 @@
+{% extends "base.html" %}
+{% block title %}Console — {{ vps.name }}{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.min.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<style>
+/* Hide base layout chrome for console page */
+html, body { height: 100%; overflow: hidden; }
+body { display: flex; flex-direction: column; }
+.layout { flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
+.sidebar { display: none !important; }
+.main-content { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.topbar { display: none !important; }
+.page-body { padding: 0 !important; flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+#toast-container { display: none; }
+
+/* Root fills the full viewport dynamically */
+#console-root {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;   /* dynamic viewport height — handles mobile keyboard */
+    background: #070910;
+    overflow: hidden;
+}
+
+/* ── Toolbar ── */
+#console-toolbar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    height: 42px;
+    min-height: 42px;
+    background: #0c0e16;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    user-select: none;
+    overflow: hidden;
+}
+.c-back {
+    display: flex; align-items: center; gap: 5px;
+    color: #4e566e; font-size: 12.5px;
+    background: none; border: none; cursor: pointer;
+    transition: color .12s; padding: 0; flex-shrink: 0;
+    text-decoration: none;
+}
+.c-back:hover { color: #60a5fa; }
+.c-sep { width: 1px; height: 18px; background: rgba(255,255,255,.06); flex-shrink: 0; }
+.c-vps-name { font-size: 13.5px; font-weight: 700; color: #e2e4ee; flex-shrink: 0; }
+.c-vps-sub { font-size: 11px; color: #4e566e; font-family: 'Geist Mono', monospace; margin-left: 2px; flex-shrink: 0; }
+
+.c-status { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
+.c-dot { width: 6px; height: 6px; border-radius: 50%; transition: background .3s; flex-shrink: 0; }
+.c-dot.connecting { background: #4e566e; }
+.c-dot.connected  { background: #22c55e; animation: cdot-pulse 2.5s infinite; }
+.c-dot.error      { background: #ef4444; }
+@keyframes cdot-pulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(34,197,94,.4); }
+    50%      { box-shadow: 0 0 0 4px rgba(34,197,94,0); }
+}
+.c-label { font-size: 11.5px; font-family: 'Geist Mono', monospace; transition: color .3s; }
+.c-label.connecting { color: #4e566e; }
+.c-label.connected  { color: #22c55e; }
+.c-label.error      { color: #ef4444; }
+
+.c-actions { display: flex; gap: 3px; align-items: center; flex-shrink: 0; }
+.c-btn {
+    background: rgba(255,255,255,.05);
+    border: 1px solid rgba(255,255,255,.07);
+    border-radius: 5px;
+    color: #8490ab;
+    font-size: 11.5px;
+    padding: 4px 9px;
+    cursor: pointer;
+    font-family: 'Geist', sans-serif;
+    transition: all .12s;
+    white-space: nowrap;
+    font-weight: 500;
+    flex-shrink: 0;
+}
+.c-btn:hover { background: rgba(255,255,255,.09); color: #e2e4ee; border-color: rgba(255,255,255,.12); }
+
+/* ── Terminal area ── */
+#term-wrapper {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    background: #070910;
+    overflow: hidden;
+    /* Touch scrolling for mobile */
+    -webkit-overflow-scrolling: touch;
+}
+#terminal-container {
+    position: absolute;
+    inset: 0;
+    padding: 4px 6px;
+    overflow: hidden;
+}
+/* Make xterm fill the container correctly */
+.xterm {
+    height: 100%;
+    padding: 0;
+}
+.xterm-viewport {
+    background: #070910 !important;
+    /* Needed for mobile touch scroll to work inside xterm */
+    overflow-y: scroll !important;
+}
+.xterm-screen { padding: 0; }
+
+/* ── Status bar ── */
+#console-statusbar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    height: 20px;
+    min-height: 20px;
+    background: #0a0c13;
+    border-top: 1px solid rgba(255,255,255,.04);
+    font-family: 'Geist Mono', monospace;
+    font-size: 10px;
+    color: #2b3048;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+/* ── Reconnect overlay (inside term-wrapper) ── */
+#reconnect-overlay {
+    display: none;
+    position: absolute; inset: 0;
+    background: rgba(7,9,16,.85);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    align-items: center; justify-content: center;
+    z-index: 30; flex-direction: column; gap: 14px;
+}
+#reconnect-overlay.show { display: flex; }
+.c-reconnect-msg { color: #8490ab; font-size: 13.5px; text-align: center; padding: 0 16px; }
+.c-reconnect-btn {
+    background: color-mix(in srgb,var(--blue) 18%,transparent);
+    border: 1px solid color-mix(in srgb,var(--blue) 35%,transparent);
+    color: #60a5fa;
+    border-radius: 6px;
+    padding: 8px 20px;
+    font-size: 13px;
+    font-family: 'Geist', sans-serif;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all .14s;
+}
+.c-reconnect-btn:hover { background: color-mix(in srgb,var(--blue) 28%,transparent); }
+
+/* ── Mobile tap-to-type hint ── */
+#mobile-kbd-hint {
+    display: none;
+    position: absolute;
+    bottom: 10px; left: 50%; transform: translateX(-50%);
+    background: rgba(12,14,22,.92);
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 6px;
+    padding: 7px 14px;
+    font-size: 12px; color: #8490ab;
+    white-space: nowrap;
+    backdrop-filter: blur(8px);
+    z-index: 10;
+    pointer-events: none;
+    animation: fade-hint 3.5s ease 2s forwards;
+}
+@keyframes fade-hint { 0%{opacity:1} 85%{opacity:1} 100%{opacity:0} }
+
+/* Mobile: touch devices show hint, hide OS label */
+@media (hover: none) and (pointer: coarse) {
+    #mobile-kbd-hint { display: block; }
+    .c-vps-sub { display: none; }
+    /* Slightly larger font on mobile for readability */
+}
+
+/* Very small screens: trim toolbar */
+@media (max-width: 420px) {
+    .c-label { display: none; }
+    .c-btn { padding: 4px 7px; font-size: 11px; }
+    #console-toolbar { gap: 5px; padding: 0 8px; }
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin .7s linear infinite; display: inline-block; }
+</style>
+{% endblock %}
+{% block content %}
+<div id="console-root">
+    <!-- Toolbar -->
+    <div id="console-toolbar">
+        <a href="/vps/{{ vps.name }}" class="c-back">
+            <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+            Back
+        </a>
+        <div class="c-sep"></div>
+        <span class="c-vps-name">{{ vps.name }}</span>
+        <span class="c-vps-sub">{{ vps.os_image }}</span>
+
+        <div class="c-status">
+            <div class="c-dot connecting" id="conn-dot"></div>
+            <span class="c-label connecting" id="conn-label">Connecting…</span>
+        </div>
+
+        <div class="c-actions">
+            <button class="c-btn" onclick="manualReconnect()">
+                <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:middle;margin-right:3px;"><path d="M1 4v6h6M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>Reconnect
+            </button>
+            <button class="c-btn" onclick="term.clear()">Clear</button>
+            <button class="c-btn" onclick="copySelection()">Copy</button>
+            <button class="c-btn" id="fs-btn" onclick="toggleFullscreen()">&#x26F6;</button>
+        </div>
+    </div>
+
+    <!-- Terminal -->
+    <div id="term-wrapper">
+        <div id="terminal-container"></div>
+        <div id="mobile-kbd-hint">Tap here then type</div>
+        <div id="reconnect-overlay">
+            <svg class="spin" width="24" height="24" fill="none" viewBox="0 0 24 24" style="color:#3b82f6;display:none;" id="reconnect-spinner">
+                <circle cx="12" cy="12" r="10" stroke="rgba(59,130,246,.2)" stroke-width="3"/>
+                <path d="M12 2a10 10 0 0110 10" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+            </svg>
+            <span class="c-reconnect-msg" id="reconnect-msg">Session closed</span>
+            <button class="c-reconnect-btn" onclick="manualReconnect()">Reconnect</button>
+        </div>
+    </div>
+
+    <!-- Status bar -->
+    <div id="console-statusbar">
+        <span>root@{{ vps.name }}</span>
+        <span id="term-size"></span>
+        <span>xterm.js · PTY</span>
+    </div>
+</div>
+
+<script>
+(function() {
+'use strict';
+
+// ── Terminal setup ─────────────────────────────────────────────────────────
+const isMobile = window.innerWidth < 768 || ('ontouchstart' in window);
+
+const term = new Terminal({
+    cursorBlink:     true,
+    fontSize:        isMobile ? 12 : 14,
+    fontFamily:      '"Geist Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace',
+    letterSpacing:   0,
+    lineHeight:      1.2,
+    theme: {
+        background:    '#070910',
+        foreground:    '#c8ccd8',
+        cursor:        '#3b82f6',
+        cursorAccent:  '#070910',
+        selectionBackground: 'rgba(59,130,246,0.25)',
+        black:         '#161a25', red:         '#f07178',
+        green:         '#b9f27b', yellow:      '#ffcb6b',
+        blue:          '#82aaff', magenta:     '#c792ea',
+        cyan:          '#89ddff', white:       '#d0d0d0',
+        brightBlack:   '#414762', brightRed:   '#ff5370',
+        brightGreen:   '#b9f27b', brightYellow:'#f78c6c',
+        brightBlue:    '#82aaff', brightMagenta:'#c792ea',
+        brightCyan:    '#89ddff', brightWhite: '#ffffff',
+    },
+    scrollback:         5000,
+    allowProposedApi:   true,
+    bellStyle:          'none',
+    convertEol:         false,
+    macOptionIsMeta:    true,
+    rightClickSelectsWord: true,
+    smoothScrollDuration: 0,
+    // Mobile: allow natural touch scroll
+    touchStart:         isMobile ? undefined : undefined,
+});
+
+const fitAddon      = new FitAddon.FitAddon();
+const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+term.loadAddon(fitAddon);
+term.loadAddon(webLinksAddon);
+term.open(document.getElementById('terminal-container'));
+
+// ── Resize logic ──────────────────────────────────────────────────────────
+let fitTimer = null;
+let currentWs = null;
+
+function doFit() {
+    try {
+        fitAddon.fit();
+        const s = term.cols + '×' + term.rows;
+        document.getElementById('term-size').textContent = s;
+        if (currentWs && currentWs.readyState === WebSocket.OPEN) {
+            currentWs.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        }
+    } catch(e) {}
+}
+
+function scheduleFit(delay) {
+    clearTimeout(fitTimer);
+    fitTimer = setTimeout(doFit, delay || 80);
+}
+
+// Multiple resize triggers for reliability across browsers/mobile
+window.addEventListener('resize', () => scheduleFit(80));
+
+if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', () => scheduleFit(80));
+    window.visualViewport.addEventListener('scroll', () => scheduleFit(80));
+}
+
+// Handle mobile soft keyboard appearing/disappearing
+window.addEventListener('orientationchange', () => scheduleFit(300));
+
+// ResizeObserver on the wrapper catches any layout-driven size changes
+const termWrapper = document.getElementById('term-wrapper');
+if (window.ResizeObserver) {
+    new ResizeObserver(() => scheduleFit(60)).observe(termWrapper);
+}
+
+// Initial fit after fonts load
+requestAnimationFrame(() => { setTimeout(doFit, 150); });
+
+// ── Status helpers ─────────────────────────────────────────────────────────
+function setStatus(state, label) {
+    document.getElementById('conn-dot').className   = 'c-dot ' + state;
+    const lbl = document.getElementById('conn-label');
+    lbl.className   = 'c-label ' + state;
+    lbl.textContent = label;
+}
+
+const overlay        = document.getElementById('reconnect-overlay');
+const reconnectMsg   = document.getElementById('reconnect-msg');
+const reconnectSpin  = document.getElementById('reconnect-spinner');
+
+function showOverlay(msg, spinning) {
+    reconnectMsg.textContent       = msg;
+    reconnectSpin.style.display    = spinning ? 'block' : 'none';
+    overlay.classList.add('show');
+}
+
+function hideOverlay() {
+    overlay.classList.remove('show');
+}
+
+// ── WebSocket connection ───────────────────────────────────────────────────
+let reconnectAttempts = 0;
+const MAX_AUTO_RECONNECT = 5;
+let reconnectTimer = null;
+let inputHandler = null;
+
+function connect() {
+    // Clean up any existing connection
+    if (currentWs) {
+        try { currentWs.close(1000); } catch(e) {}
+        currentWs = null;
+    }
+    if (inputHandler) { inputHandler.dispose(); inputHandler = null; }
+
+    setStatus('connecting', 'Connecting…');
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(proto + '://' + location.host + '/ws/console/{{ vps.name }}');
+    ws.binaryType = 'arraybuffer';
+    currentWs = ws;
+
+    ws.onopen = () => {
+        reconnectAttempts = 0;
+        clearTimeout(reconnectTimer);
+        hideOverlay();
+        setStatus('connected', 'Connected');
+        doFit(); // Send accurate dimensions immediately on connect
+        term.focus();
+
+        inputHandler = term.onData(data => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(new TextEncoder().encode(data));
+            }
+        });
+    };
+
+    ws.onmessage = e => {
+        if (e.data instanceof ArrayBuffer) {
+            term.write(new Uint8Array(e.data));
+        } else if (typeof e.data === 'string') {
+            term.write(e.data);
+        }
+    };
+
+    ws.onerror = () => {
+        setStatus('error', 'Error');
+        term.writeln('\r\n\x1b[1;31m[WebSocket error — check VPS status]\x1b[0m\r\n');
+    };
+
+    ws.onclose = e => {
+        if (currentWs !== ws) return; // stale event from replaced connection
+        currentWs = null;
+        if (inputHandler) { inputHandler.dispose(); inputHandler = null; }
+
+        const knownCodes = { 4001: 'Auth required', 4003: 'VPS suspended', 4004: 'VPS not found' };
+        const reason = knownCodes[e.code] || ('code ' + e.code);
+        setStatus('error', 'Closed (' + reason + ')');
+        term.writeln('\r\n\x1b[1;31m[Session closed — ' + reason + ']\x1b[0m');
+
+        const fatal = e.code === 4001 || e.code === 4003 || e.code === 4004;
+        if (!fatal && reconnectAttempts < MAX_AUTO_RECONNECT) {
+            reconnectAttempts++;
+            const delay = Math.min(1500 * reconnectAttempts, 10000);
+            const sec   = (delay / 1000).toFixed(0);
+            term.writeln('\x1b[33m[Auto-reconnect in ' + sec + 's… attempt ' + reconnectAttempts + '/' + MAX_AUTO_RECONNECT + ']\x1b[0m\r\n');
+            showOverlay('Reconnecting in ' + sec + 's…', true);
+            reconnectTimer = setTimeout(() => { hideOverlay(); connect(); }, delay);
+        } else {
+            term.writeln('\x1b[90m[Use the Reconnect button to try again]\x1b[0m\r\n');
+            showOverlay(fatal ? 'Cannot connect: ' + reason : 'Connection lost after ' + MAX_AUTO_RECONNECT + ' attempts.', false);
+        }
+    };
+}
+
+// ── Public actions ─────────────────────────────────────────────────────────
+function manualReconnect() {
+    clearTimeout(reconnectTimer);
+    reconnectAttempts = 0;
+    hideOverlay();
+    term.reset();
+    connect();
+}
+window.manualReconnect = manualReconnect;
+
+function copySelection() {
+    const sel = term.getSelection();
+    if (sel) navigator.clipboard.writeText(sel).catch(() => {});
+}
+window.copySelection = copySelection;
+
+function toggleFullscreen() {
+    const el = document.getElementById('console-root');
+    if (!document.fullscreenElement) {
+        (el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || (() => {})).call(el);
+    } else {
+        (document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || (() => {})).call(document);
+    }
+}
+window.toggleFullscreen = toggleFullscreen;
+
+document.addEventListener('fullscreenchange',       () => scheduleFit(100));
+document.addEventListener('webkitfullscreenchange', () => scheduleFit(100));
+
+// Paste support
+document.addEventListener('paste', e => {
+    if (currentWs && currentWs.readyState === WebSocket.OPEN) {
+        const text = (e.clipboardData || window.clipboardData).getData('text');
+        if (text) currentWs.send(new TextEncoder().encode(text));
+        e.preventDefault();
+    }
+});
+
+// Tap/click on wrapper focuses terminal
+termWrapper.addEventListener('click', () => term.focus(), { passive: true });
+
+// Start!
+connect();
+
+})();
+</script>
+{% endblock %}

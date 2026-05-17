@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}UPI Payment — Hycroe{% endblock %}
+{% block page_title %}Pay with UPI{% endblock %}
+{% block content %}
+<div style="max-width:520px;margin:0 auto;">
+    <div class="card" style="padding:0;margin-bottom:14px;">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--border);">
+            <span class="section-title">Order Summary</span>
+        </div>
+        <div style="padding:18px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <span style="font-size:14px;font-weight:600;color:var(--text);">{{ pkg.label }} — {{ pkg.credits }} Credits</span>
+                <span class="mono" style="font-size:18px;font-weight:700;color:var(--blue-2);">₹{{ "%.2f"|format(amount_paise / 100) }}</span>
+            </div>
+            <div style="background:var(--bg-3);border:1px solid var(--border);border-radius:var(--r);padding:10px 14px;">
+                <div style="font-size:11px;color:var(--text-3);margin-bottom:6px;">Credits after payment</div>
+                <div class="mono" style="font-size:22px;font-weight:700;color:var(--green);">+{{ pkg.credits }}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card" style="padding:18px;margin-bottom:14px;">
+        <div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:16px;text-transform:uppercase;letter-spacing:.08em;">Accepted UPI Apps</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;">
+            {% for app, color in [('Google Pay','#4285F4'),('PhonePe','#5f259f'),('Paytm','#002970'),('BHIM','#0d47a1')] %}
+            <div style="display:flex;align-items:center;gap:6px;background:var(--bg-3);border:1px solid var(--border);border-radius:var(--r);padding:7px 12px;">
+                <div style="width:8px;height:8px;border-radius:50%;background:{{ color }};flex-shrink:0;"></div>
+                <span style="font-size:12px;font-weight:600;color:var(--text-2);">{{ app }}</span>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div id="rzp-container">
+            <button id="rzp-btn" class="btn btn-primary" style="width:100%;justify-content:center;padding:12px;font-size:14px;" onclick="openRazorpay()">
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                Pay ₹{{ "%.2f"|format(amount_paise / 100) }} with UPI
+            </button>
+        </div>
+
+        <div style="margin-top:14px;text-align:center;">
+            <a href="/billing" style="font-size:12px;color:var(--text-3);">← Back to Billing</a>
+        </div>
+    </div>
+
+    <div style="text-align:center;">
+        <div style="font-size:11px;color:var(--text-3);">Secured by Razorpay · UPI payments processed in real-time</div>
+    </div>
+</div>
+
+<!-- Hidden form for Razorpay callback -->
+<form id="rzp-form" method="post" action="{{ callback_url }}" style="display:none;">
+    <input type="hidden" name="razorpay_order_id"   id="r_order_id">
+    <input type="hidden" name="razorpay_payment_id"  id="r_payment_id">
+    <input type="hidden" name="razorpay_signature"   id="r_signature">
+</form>
+{% endblock %}
+{% block scripts %}
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<script>
+function openRazorpay() {
+    var options = {
+        "key": "{{ rzp_key_id }}",
+        "amount": {{ amount_paise }},
+        "currency": "INR",
+        "name": "Hycroe Panel",
+        "description": "{{ pkg.label }} – {{ pkg.credits }} Credits",
+        "order_id": "{{ order.id }}",
+        "prefill": {
+            "name": "{{ user.username }}",
+            "email": "{{ user.email or '' }}",
+        },
+        "theme": { "color": "#3b82f6" },
+        "modal": { "ondismiss": function() { document.getElementById('rzp-btn').disabled = false; } },
+        "handler": function(response) {
+            document.getElementById('r_order_id').value   = response.razorpay_order_id;
+            document.getElementById('r_payment_id').value = response.razorpay_payment_id;
+            document.getElementById('r_signature').value  = response.razorpay_signature;
+            document.getElementById('rzp-form').submit();
+        },
+    };
+    var rzp = new Razorpay(options);
+    rzp.on('payment.failed', function(resp) {
+        alert('Payment failed: ' + (resp.error.description || 'Unknown error'));
+    });
+    rzp.open();
+    document.getElementById('rzp-btn').disabled = true;
+}
+</script>
+{% endblock %}

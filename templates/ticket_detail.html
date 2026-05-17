@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+{% block title %}Ticket #{{ ticket.id }} — {{ settings.panel_name if settings else 'Hycroe' }}{% endblock %}
+{% block page_title %}Ticket #{{ ticket.id }}{% endblock %}
+
+{% block content %}
+{% set success = request.query_params.get('success') %}
+{% set error   = request.query_params.get('error') %}
+
+{% if success == 'ticket_closed' %}
+<div class="alert alert-success" style="margin-bottom:14px;">Ticket closed.</div>
+{% elif success == 'status_updated' %}
+<div class="alert alert-success" style="margin-bottom:14px;">Status updated.</div>
+{% elif success == 'ticket_created' %}
+<div class="alert alert-success" style="margin-bottom:14px;">Ticket submitted — we'll get back to you soon.</div>
+{% endif %}
+{% if error == 'invalid_message' %}
+<div class="alert alert-error" style="margin-bottom:14px;">Message is required (max 5000 characters).</div>
+{% elif error == 'ticket_closed' %}
+<div class="alert alert-error" style="margin-bottom:14px;">Cannot reply to a closed ticket.</div>
+{% elif error == 'invalid_status' %}
+<div class="alert alert-error" style="margin-bottom:14px;">Invalid status value.</div>
+{% endif %}
+
+<div style="max-width:780px;">
+
+    <!-- Back + header row -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px;">
+        <a href="/tickets" style="display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--text-3);transition:color .12s;">
+            <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            Back to Tickets
+        </a>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span id="status-badge">
+                {% if ticket.status == 'open' %}
+                    <span class="badge badge-running"><span class="badge-dot"></span>Open</span>
+                {% elif ticket.status == 'in_progress' %}
+                    <span class="badge badge-building"><span class="badge-dot"></span>In Progress</span>
+                {% else %}
+                    <span class="badge badge-unknown"><span class="badge-dot"></span>Closed</span>
+                {% endif %}
+            </span>
+            {% if user.is_admin %}
+            <form method="post" action="/admin/tickets/{{ ticket.id }}/status" style="display:inline-flex;align-items:center;gap:6px;">
+                <select name="status" class="form-input" style="width:auto;padding:4px 8px;font-size:12px;">
+                    <option value="open"        {% if ticket.status == 'open' %}selected{% endif %}>Open</option>
+                    <option value="in_progress" {% if ticket.status == 'in_progress' %}selected{% endif %}>In Progress</option>
+                    <option value="closed"      {% if ticket.status == 'closed' %}selected{% endif %}>Closed</option>
+                </select>
+                <button type="submit" class="btn btn-secondary btn-xs">Set</button>
+            </form>
+            <form method="post" action="/admin/tickets/{{ ticket.id }}/delete"
+                  onsubmit="return confirm('Permanently delete ticket #{{ ticket.id }} and all messages?')" style="display:inline;">
+                <button type="submit" class="btn btn-danger btn-xs">Delete</button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Ticket title card -->
+    <div class="card" style="padding:14px 18px;margin-bottom:14px;">
+        <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:3px;">{{ ticket.title }}</div>
+        <div style="font-size:11.5px;color:var(--text-3);display:flex;gap:14px;flex-wrap:wrap;">
+            <span>Ticket <span class="mono">#{{ ticket.id }}</span></span>
+            {% if user.is_admin %}
+            <span>By <strong style="color:var(--text-2);">{{ ticket.owner.username if ticket.owner else '—' }}</strong></span>
+            {% endif %}
+            <span>{{ ticket.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</span>
+        </div>
+    </div>
+
+    <!-- Chat thread — populated by JS polling -->
+    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px;" id="chat-thread">
+        {% for msg in messages %}
+        {% set is_mine = (msg.user_id == user.id) %}
+        {% set is_admin_msg = (msg.author and msg.author.is_admin) %}
+        <div class="msg-bubble" data-id="{{ msg.id }}" style="display:flex;flex-direction:column;align-items:{% if is_mine %}flex-end{% else %}flex-start{% endif %};">
+            <div style="max-width:88%;min-width:120px;">
+                <div style="
+                    padding:10px 14px;
+                    border-radius:{% if is_mine %}12px 12px 4px 12px{% else %}12px 12px 12px 4px{% endif %};
+                    background:{% if is_mine %}var(--blue){% elif is_admin_msg %}var(--bg-4){% else %}var(--bg-3){% endif %};
+                    color:{% if is_mine %}white{% else %}var(--text){% endif %};
+                    border:1px solid {% if is_mine %}var(--blue){% else %}var(--border-2){% endif %};
+                    font-size:13.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;
+                ">{{ msg.message }}</div>
+                <div style="font-size:11px;color:var(--text-3);margin-top:4px;display:flex;gap:6px;align-items:center;{% if is_mine %}justify-content:flex-end;{% endif %}">
+                    {% if is_admin_msg and not is_mine %}
+                    <span style="background:var(--blue-dim);color:var(--blue-2);border:1px solid color-mix(in srgb,var(--blue) 25%,transparent);border-radius:4px;padding:1px 5px;font-size:10px;font-weight:600;">Staff</span>
+                    {% endif %}
+                    <span>{{ msg.author.username if msg.author else '?' }}</span>
+                    <span>·</span>
+                    <span class="mono">{{ msg.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div id="empty-state" style="text-align:center;padding:28px;font-size:13px;color:var(--text-3);">No messages yet.</div>
+        {% endfor %}
+    </div>
+
+    <div id="bottom"></div>
+
+    <!-- Reply box -->
+    <div class="card" id="reply-card" style="padding:0;margin-bottom:12px;{% if ticket.status == 'closed' %}display:none;{% endif %}">
+        <form method="post" action="/tickets/{{ ticket.id }}/reply" id="reply-form">
+            <div style="padding:14px 16px 10px;">
+                <label class="form-label">Reply</label>
+                <textarea name="message" class="form-input" rows="3"
+                          placeholder="Type your message…" maxlength="5000" required
+                          style="resize:vertical;" id="reply-box"></textarea>
+            </div>
+            <div style="padding:0 16px 14px;display:flex;justify-content:flex-end;gap:8px;">
+                <button type="submit" class="btn btn-primary btn-sm" id="send-btn">
+                    <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/></svg>
+                    Send Reply
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Close button -->
+    <div style="display:flex;gap:8px;" id="action-row">
+        {% if ticket.status != 'closed' %}
+        <form method="post" action="/tickets/{{ ticket.id }}/close" id="close-form">
+            <button type="submit" class="btn btn-ghost btn-sm">
+                <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12"/></svg>
+                Close Ticket
+            </button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+const TICKET_ID   = {{ ticket.id }};
+const MY_USER_ID  = {{ user.id }};
+const IS_ADMIN    = {{ 'true' if user.is_admin else 'false' }};
+const POLL_MS     = 3500;   // poll every 3.5 seconds
+let   lastMsgId   = {{ messages[-1].id if messages else 0 }};
+let   pollTimer   = null;
+let   ticketOpen  = {{ 'true' if ticket.status != 'closed' else 'false' }};
+
+function makeBubble(msg) {
+    const wrap = document.createElement('div');
+    wrap.className = 'msg-bubble';
+    wrap.dataset.id = msg.id;
+    wrap.style.cssText = `display:flex;flex-direction:column;align-items:${msg.is_mine ? 'flex-end' : 'flex-start'};`;
+
+    const bg   = msg.is_mine ? 'var(--blue)' : (msg.is_admin ? 'var(--bg-4)' : 'var(--bg-3)');
+    const fg   = msg.is_mine ? 'white' : 'var(--text)';
+    const bord = msg.is_mine ? 'var(--blue)' : 'var(--border-2)';
+    const br   = msg.is_mine ? '12px 12px 4px 12px' : '12px 12px 12px 4px';
+    const staffBadge = (msg.is_admin && !msg.is_mine)
+        ? `<span style="background:var(--blue-dim);color:var(--blue-2);border:1px solid color-mix(in srgb,var(--blue) 25%,transparent);border-radius:4px;padding:1px 5px;font-size:10px;font-weight:600;">Staff</span>`
+        : '';
+    const metaAlign = msg.is_mine ? 'justify-content:flex-end;' : '';
+
+    wrap.innerHTML = `
+      <div style="max-width:88%;min-width:120px;">
+        <div style="padding:10px 14px;border-radius:${br};background:${bg};color:${fg};border:1px solid ${bord};font-size:13.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;">${escHtml(msg.message)}</div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:4px;display:flex;gap:6px;align-items:center;${metaAlign}">
+          ${staffBadge}
+          <span>${escHtml(msg.username)}</span><span>·</span>
+          <span class="mono">${msg.created_at}</span>
+        </div>
+      </div>`;
+    return wrap;
+}
+
+function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function updateStatusBadge(status) {
+    const map = {
+        open:        `<span class="badge badge-running"><span class="badge-dot"></span>Open</span>`,
+        in_progress: `<span class="badge badge-building"><span class="badge-dot"></span>In Progress</span>`,
+        closed:      `<span class="badge badge-unknown"><span class="badge-dot"></span>Closed</span>`,
+    };
+    const el = document.getElementById('status-badge');
+    if (el && map[status]) el.innerHTML = map[status];
+
+    const wasOpen = ticketOpen;
+    ticketOpen = status !== 'closed';
+    if (wasOpen !== ticketOpen) {
+        // Show/hide reply box when status changes live
+        const card = document.getElementById('reply-card');
+        if (card) card.style.display = ticketOpen ? '' : 'none';
+    }
+}
+
+async function poll() {
+    try {
+        const res = await fetch(`/api/tickets/${TICKET_ID}/messages?after=${lastMsgId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // Append new messages
+        if (data.messages && data.messages.length > 0) {
+            const thread = document.getElementById('chat-thread');
+            const empty  = document.getElementById('empty-state');
+            if (empty) empty.remove();
+            for (const msg of data.messages) {
+                // Skip if already rendered
+                if (thread.querySelector(`[data-id="${msg.id}"]`)) continue;
+                thread.appendChild(makeBubble(msg));
+                lastMsgId = Math.max(lastMsgId, msg.id);
+            }
+            document.getElementById('bottom')?.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Update status badge
+        if (data.ticket_status) updateStatusBadge(data.ticket_status);
+
+    } catch(e) { /* network error — silently ignore, retry next interval */ }
+}
+
+// Start polling
+function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(poll, POLL_MS);
+}
+function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+// Disable polling while user is typing (don't disturb focus)
+const replyBox = document.getElementById('reply-box');
+if (replyBox) {
+    replyBox.addEventListener('focus', stopPolling);
+    replyBox.addEventListener('blur',  startPolling);
+}
+
+// On send: submit normally, polling will show new message on next load
+document.getElementById('reply-form')?.addEventListener('submit', () => {
+    stopPolling();
+    const btn = document.getElementById('send-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+});
+
+// Scroll to bottom on load
+document.getElementById('bottom')?.scrollIntoView();
+
+startPolling();
+
+// Pause polling when tab is hidden
+document.addEventListener('visibilitychange', () => {
+    document.hidden ? stopPolling() : startPolling();
+});
+</script>
+{% endblock %}

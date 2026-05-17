@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+{% block title %}{{ node.display_name or node.name }} — Proxmox{% endblock %}
+{% block page_title %}{{ node.display_name or node.name }}{% endblock %}
+{% block topbar_extra %}
+<div style="display:flex;align-items:center;gap:8px;margin-left:8px;">
+    <span class="chip chip-proxmox">PVE</span>
+    <span style="font-size:12px;color:var(--text-3);">{{ node.address }}:{{ node.port }}</span>
+</div>
+<div class="topbar-right">
+    <button onclick="document.getElementById('create-vm-modal').classList.add('open')" class="btn btn-ghost btn-sm">New VM</button>
+    <button onclick="document.getElementById('create-lxc-modal').classList.add('open')" class="btn btn-primary btn-sm">New LXC</button>
+</div>
+{% endblock %}
+{% block content %}
+
+<!-- Node resources -->
+{% if node_status %}
+<div class="stat-grid" style="margin-bottom:24px;">
+    <div class="stat-card">
+        <div class="stat-label">CPU Load</div>
+        <div class="stat-value {% if node_status.cpu_load > 80 %}amber{% else %}green{% endif %}">{{ node_status.cpu_load }}%</div>
+        <div class="stat-sub">{{ node_status.cpu_cores }} cores</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Memory Used</div>
+        <div class="stat-value">{{ node_status.ram_used_mb }}</div>
+        <div class="stat-sub">of {{ node_status.ram_total_mb }} MB</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Disk Used</div>
+        <div class="stat-value">{{ node_status.disk_used_gb }}<span style="font-size:14px;color:var(--text-3);font-weight:500;">GB</span></div>
+        <div class="stat-sub">of {{ node_status.disk_total_gb }} GB</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">VMs + LXC</div>
+        <div class="stat-value c-blue">{{ vms|length }}</div>
+        <div class="stat-sub">{{ vms|selectattr('status','eq','running')|list|length }} running</div>
+    </div>
+</div>
+{% endif %}
+
+<!-- VM/Container list -->
+<div class="section-hd">
+    <span class="section-title">Virtual Machines & Containers</span>
+    <span style="font-size:12px;color:var(--text-3);" class="mono">{{ vms|length }} total</span>
+</div>
+
+{% if vms %}
+<div class="card">
+    <div class="table-wrap">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>VMID</th>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>CPU</th>
+                    <th>Memory</th>
+                    <th>Disk</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for vm in vms %}
+                <tr>
+                    <td><span class="mono" style="color:var(--text-3);">{{ vm.vmid }}</span></td>
+                    <td><span style="font-weight:600;color:var(--text);">{{ vm.name or '—' }}</span></td>
+                    <td>
+                        {% if vm.type == 'qemu' %}
+                        <span style="font-size:11px;font-weight:600;color:#82aaff;background:rgba(130,170,255,.1);padding:2px 8px;border-radius:4px;">VM</span>
+                        {% else %}
+                        <span style="font-size:11px;font-weight:600;color:#c3e88d;background:rgba(195,232,141,.1);padding:2px 8px;border-radius:4px;">LXC</span>
+                        {% endif %}
+                    </td>
+                    <td><span class="badge badge-{% if vm.status == 'running' %}running{% elif vm.status == 'stopped' %}stopped{% else %}unknown{% endif %}">{{ vm.status }}</span></td>
+                    <td><span class="mono" style="color:var(--text-2);">{{ vm.cpu }}</span></td>
+                    <td><span class="mono" style="color:var(--text-2);">{{ vm.ram_mb }}MB</span></td>
+                    <td><span class="mono" style="color:var(--text-2);">{{ vm.disk_gb }}GB</span></td>
+                    <td>
+                        <div style="display:flex;gap:5px;">
+                            {% if vm.status == 'running' %}
+                            <button onclick="vmAction({{ node.id }}, {{ vm.vmid }}, '{{ vm.type }}', 'reboot')" class="btn btn-ghost btn-sm" title="Reboot">
+                                <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+                            </button>
+                            <button onclick="vmAction({{ node.id }}, {{ vm.vmid }}, '{{ vm.type }}', 'stop')" class="btn btn-ghost btn-sm" style="color:var(--amber);" title="Stop">
+                                <svg width="11" height="11" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+                            </button>
+                            {% else %}
+                            <button onclick="vmAction({{ node.id }}, {{ vm.vmid }}, '{{ vm.type }}', 'start')" class="btn btn-ghost btn-sm" style="color:var(--green);" title="Start">
+                                <svg width="11" height="11" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                            </button>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="card">
+    <div class="empty-state">
+        <div class="empty-icon">
+            <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="var(--text-3)" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        </div>
+        <div class="empty-title">No VMs or containers</div>
+        <div class="empty-desc">Create your first VM or LXC container on this Proxmox node.</div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Create VM Modal -->
+<div id="create-vm-modal" class="modal-backdrop" onclick="if(event.target===this)this.classList.remove('open')">
+    <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span class="modal-title">Create Virtual Machine</span>
+            <button class="modal-close" onclick="document.getElementById('create-vm-modal').classList.remove('open')">
+                <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <form method="post" action="/nodes/{{ node.id }}/proxmox/create-vm">
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
+                <div class="form-grid form-grid-2">
+                    <div class="form-group">
+                        <label class="form-label">VM ID</label>
+                        <input type="number" name="vmid" value="100" min="100" required class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Name</label>
+                        <input type="text" name="name" placeholder="my-vm" required class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Memory (MB)</label>
+                        <input type="number" name="ram_mb" value="1024" min="256" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">CPU Cores</label>
+                        <input type="number" name="cores" value="1" min="1" max="32" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Disk (GB)</label>
+                        <input type="number" name="disk_gb" value="20" min="4" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Storage Pool</label>
+                        <select name="storage" class="form-input">
+                            {% for s in storages %}
+                            <option value="{{ s.storage }}">{{ s.storage }}</option>
+                            {% else %}
+                            <option value="local-lvm">local-lvm</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">ISO Image (optional)</label>
+                    <input type="text" name="iso" placeholder="local:iso/ubuntu-22.04-live-server-amd64.iso" class="form-input">
+                    <div class="form-hint">Format: storage:iso/filename.iso</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Network Bridge</label>
+                    <input type="text" name="net_bridge" value="vmbr0" class="form-input">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="document.getElementById('create-vm-modal').classList.remove('open')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create VM</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Create LXC Modal -->
+<div id="create-lxc-modal" class="modal-backdrop" onclick="if(event.target===this)this.classList.remove('open')">
+    <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span class="modal-title">Create LXC Container</span>
+            <button class="modal-close" onclick="document.getElementById('create-lxc-modal').classList.remove('open')">
+                <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <form method="post" action="/nodes/{{ node.id }}/proxmox/create-lxc">
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
+                <div class="form-grid form-grid-2">
+                    <div class="form-group">
+                        <label class="form-label">CT ID</label>
+                        <input type="number" name="vmid" value="200" min="100" required class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Hostname</label>
+                        <input type="text" name="hostname" placeholder="my-container" required class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Memory (MB)</label>
+                        <input type="number" name="ram_mb" value="512" min="64" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">CPU Cores</label>
+                        <input type="number" name="cores" value="1" min="1" max="32" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Disk (GB)</label>
+                        <input type="number" name="disk_gb" value="8" min="1" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Storage Pool</label>
+                        <select name="storage" class="form-input">
+                            {% for s in storages %}
+                            <option value="{{ s.storage }}">{{ s.storage }}</option>
+                            {% else %}
+                            <option value="local-lvm">local-lvm</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">OS Template</label>
+                    <input type="text" name="template" placeholder="local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst" required class="form-input">
+                    <div class="form-hint">Format: storage:vztmpl/filename.tar.zst</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Root Password</label>
+                    <input type="password" name="password" placeholder="(optional)" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Network Bridge</label>
+                    <input type="text" name="net_bridge" value="vmbr0" class="form-input">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="document.getElementById('create-lxc-modal').classList.remove('open')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create LXC</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+async function vmAction(nodeId, vmid, vtype, action) {
+    const body = new FormData();
+    body.append('vmid', vmid);
+    body.append('vtype', vtype);
+    body.append('action', action);
+    try {
+        const r = await fetch(`/nodes/${nodeId}/proxmox/action`, { method: 'POST', body });
+        const d = await r.json();
+        if (d.success) {
+            toast(`${action.charAt(0).toUpperCase()+action.slice(1)} sent to VM ${vmid}`, 's');
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            toast(`Failed: ${d.error}`, 'e');
+        }
+    } catch(e) {
+        toast('Request failed', 'e');
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}Account Settings — {{ settings.panel_name if settings else 'Hycroe' }}{% endblock %}
+{% block page_title %}Account Settings{% endblock %}
+{% block scripts %}
+<style>@keyframes spin { to { transform: rotate(360deg); } } .spin { animation: spin 0.8s linear infinite; display:inline-block; }</style>
+{% endblock %}
+{% block content %}
+<div style="max-width:680px;">
+
+    <!-- User info card -->
+    <div class="card" style="padding:0;margin-bottom:16px;">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--border);"><span class="section-title">Profile</span></div>
+        <div style="padding:18px;display:flex;align-items:center;gap:16px;">
+            {% set av = user.display_avatar if user.display_avatar is defined else user.avatar_url %}
+            {% if av %}
+            <img src="{{ av }}" style="width:56px;height:56px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid var(--border-2);">
+            {% else %}
+            <div style="width:56px;height:56px;border-radius:50%;background:var(--blue);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:white;flex-shrink:0;">
+                {{ user.username[0].upper() }}
+            </div>
+            {% endif %}
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:16px;font-weight:700;color:var(--text);letter-spacing:-0.3px;margin-bottom:2px;">{{ user.username }}</div>
+                <div style="font-size:12px;color:var(--text-3);">{{ user.email or 'No email set' }}</div>
+                <div style="display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap;">
+                    {% if user.is_admin %}
+                    <span class="badge" style="color:var(--purple);background:var(--purple-dim);border:1px solid rgba(168,85,247,.18);">admin</span>
+                    {% endif %}
+                    {% if user.discord_verified %}
+                    <span class="badge" style="color:#7289da;background:rgba(88,101,242,.1);border:1px solid rgba(88,101,242,.2);">
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03z"/></svg>
+                        Discord verified
+                    </span>
+                    {% endif %}
+                    <span class="badge" style="color:var(--text-3);background:var(--bg-3);border:1px solid var(--border);">{{ user.credits }}cr</span>
+                    <span class="text-muted" style="font-size:11px;">Joined {{ user.created_at.strftime('%B %Y') if user.created_at else '—' }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change Password -->
+    {% if user.password %}
+    <div class="card" style="padding:0;margin-bottom:16px;">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--border);"><span class="section-title">Change Password</span></div>
+        <form method="post" action="/account/password/change" style="padding:18px;display:flex;flex-direction:column;gap:12px;">
+            <div class="form-group">
+                <label class="form-label">Current Password</label>
+                <input type="password" name="current_password" class="form-input" required autocomplete="current-password" placeholder="••••••••">
+            </div>
+            <div class="form-grid form-grid-2">
+                <div class="form-group">
+                    <label class="form-label">New Password</label>
+                    <input type="password" name="new_password" class="form-input" required autocomplete="new-password" placeholder="••••••••" minlength="8">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Confirm New Password</label>
+                    <input type="password" name="confirm_password" class="form-input" required autocomplete="new-password" placeholder="••••••••">
+                </div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;">
+                <button type="submit" class="btn btn-primary btn-sm" onclick="this.disabled=true;this.innerHTML='<svg class=spin width=12 height=12 fill=none viewBox=\"0 0 24 24\"><circle cx=12 cy=12 r=10 stroke=\"rgba(255,255,255,.25)\" stroke-width=3/><path d=\"M12 2a10 10 0 0110 10\" stroke=white stroke-width=3 stroke-linecap=round/></svg> Saving…';this.form.submit();return false;">Update Password</button>
+            </div>
+        </form>
+    </div>
+    {% else %}
+    <div class="card" style="padding:0;margin-bottom:16px;">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--border);"><span class="section-title">Set Password</span></div>
+        <div class="alert alert-info" style="margin:14px 18px;">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+            Your account currently uses Discord login only. Setting a password lets you sign in with username/password and disconnect Discord.
+        </div>
+        <form method="post" action="/account/password/change" style="padding:14px 18px 18px;display:flex;flex-direction:column;gap:12px;">
+            <input type="hidden" name="current_password" value="__no_password__">
+            <div class="form-grid form-grid-2">
+                <div class="form-group">
+                    <label class="form-label">New Password</label>
+                    <input type="password" name="new_password" class="form-input" required autocomplete="new-password" placeholder="••••••••" minlength="8">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Confirm Password</label>
+                    <input type="password" name="confirm_password" class="form-input" required autocomplete="new-password" placeholder="••••••••">
+                </div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;">
+                <button type="submit" class="btn btn-primary btn-sm" onclick="this.disabled=true;this.innerHTML='<svg class=spin width=12 height=12 fill=none viewBox=\"0 0 24 24\"><circle cx=12 cy=12 r=10 stroke=\"rgba(255,255,255,.25)\" stroke-width=3/><path d=\"M12 2a10 10 0 0110 10\" stroke=white stroke-width=3 stroke-linecap=round/></svg> Setting…';this.form.submit();return false;">Set Password</button>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+
+    <!-- Discord Connection -->
+    <div class="card" style="padding:0;margin-bottom:16px;">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--border);">
+            <span class="section-title">Discord</span>
+        </div>
+        <div style="padding:18px;">
+            {% if user.discord_id %}
+            <!-- Connected state -->
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+                {% set av = user.display_avatar if user.display_avatar is defined else user.avatar_url %}
+                {% if av %}
+                <img src="{{ av }}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">
+                {% else %}
+                <div style="width:40px;height:40px;border-radius:50%;background:#7289da;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:white;">D</div>
+                {% endif %}
+                <div>
+                    <div style="font-size:13px;font-weight:700;color:var(--text);">{{ user.discord_username or 'Discord User' }}</div>
+                    <div style="font-size:11px;color:var(--text-3);">ID: <span class="mono">{{ user.discord_id }}</span></div>
+                </div>
+                <span class="badge" style="color:var(--green);background:var(--green-dim);border:1px solid rgba(34,197,94,.18);margin-left:auto;">Connected</span>
+            </div>
+            {% if user.password %}
+            <form method="post" action="/account/discord/disconnect">
+                <button type="submit" class="btn btn-danger btn-sm">
+                    <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                    Disconnect Discord
+                </button>
+            </form>
+            {% else %}
+            <div class="alert alert-warn" style="margin-top:8px;">
+                <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M12 9v4m0 4h.01"/></svg>
+                Set a password before disconnecting Discord (it's your only login method).
+            </div>
+            {% endif %}
+            {% else %}
+            <!-- Not connected state -->
+            {% if discord_enabled %}
+            <div style="margin-bottom:14px;">
+                <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;">No Discord account connected</div>
+                <div style="font-size:12px;color:var(--text-3);margin-bottom:12px;">Connect your Discord account for verification and faster login.</div>
+                <a href="/account/discord/connect" style="display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:var(--r);border:1px solid rgba(88,101,242,.3);background:rgba(88,101,242,.08);color:#7289da;font-weight:600;font-size:13px;transition:background .12s;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03z"/></svg>
+                    Connect Discord
+                </a>
+            </div>
+            {% else %}
+            <div class="alert alert-warn">
+                <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M12 9v4m0 4h.01"/></svg>
+                Discord integration is not configured or disabled on this panel.
+            </div>
+            {% endif %}
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Account details -->
+    <div class="card" style="padding:0;">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--border);"><span class="section-title">Account Details</span></div>
+        <div class="table-wrap">
+            <table class="data-table">
+                <tbody>
+                    <tr><td style="width:140px;color:var(--text-3);">Username</td><td class="mono" style="color:var(--text);">{{ user.username }}</td></tr>
+                    <tr><td style="color:var(--text-3);">Email</td><td style="color:var(--text);">{{ user.email or '—' }}</td></tr>
+                    <tr><td style="color:var(--text-3);">Credits</td><td class="mono text-blue" style="font-weight:700;">{{ user.credits }}</td></tr>
+                    <tr><td style="color:var(--text-3);">Role</td><td>{% if user.is_admin %}<span class="badge" style="color:var(--purple);background:var(--purple-dim);border:1px solid rgba(168,85,247,.18);">admin</span>{% else %}<span class="badge" style="color:var(--text-3);background:var(--bg-3);border:1px solid var(--border);">user</span>{% endif %}</td></tr>
+                    <tr><td style="color:var(--text-3);">Last Login</td><td class="mono" style="font-size:12px;color:var(--text-2);">{{ user.last_login.strftime('%Y-%m-%d %H:%M UTC') if user.last_login else 'Never' }}</td></tr>
+                    <tr><td style="color:var(--text-3);">Joined</td><td class="mono" style="font-size:12px;color:var(--text-2);">{{ user.created_at.strftime('%Y-%m-%d') if user.created_at else '—' }}</td></tr>
+                    <tr><td style="color:var(--text-3);">Discord</td><td>{% if user.discord_verified %}<span class="mono" style="font-size:12px;color:#7289da;">{{ user.discord_username }}</span>{% else %}<span style="color:var(--text-3);">Not connected</span>{% endif %}</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

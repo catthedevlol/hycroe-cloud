@@ -1,0 +1,674 @@
+{% extends "base.html" %}
+{% block title %}Instances — Hycroe{% endblock %}
+{% block page_title %}Instances{% endblock %}
+{% block topbar_extra %}
+<div class="topbar-right" style="display:flex;align-items:center;gap:8px;">
+    <span id="refresh-label" style="font-size:11px;color:var(--text-4);font-family:'Geist Mono',monospace;display:flex;align-items:center;gap:5px;">
+        <span class="live-dot"></span>
+        <span id="refresh-ago">live</span>
+    </span>
+    <button onclick="manualRefresh()" id="manual-refresh-btn" class="btn btn-ghost btn-sm" title="Refresh now">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" id="refresh-icon"><path d="M1 4v6h6M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+    </button>
+    <button onclick="openDeployModal()" class="btn btn-primary btn-sm">
+        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+        Deploy
+    </button>
+</div>
+{% endblock %}
+{% block content %}
+
+{% if settings and settings.announcement %}
+<div class="alert alert-warn" style="margin-bottom:16px;align-items:flex-start;border-radius:var(--r-lg);">
+    <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px;"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/></svg>
+    <div>
+        <div style="font-weight:700;margin-bottom:2px;">Announcement</div>
+        <div style="font-size:12.5px;opacity:.95;">{{ settings.announcement }}</div>
+    </div>
+</div>
+{% endif %}
+
+{% if settings and settings.require_discord_verify and not user.discord_verified and not user.is_admin %}
+<div class="alert alert-warn" style="margin-bottom:16px;border-radius:var(--r-lg);">
+    <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px;"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+    <div>
+        <div style="font-weight:700;margin-bottom:2px;">Discord verification required</div>
+        <div style="font-size:12px;opacity:.9;">Please verify your account with Discord before creating instances. <a href="/account/settings" style="color:inherit;text-decoration:underline;font-weight:600;">Connect Discord →</a></div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Stats row -->
+<div class="stat-grid" style="margin-bottom:22px;" id="stat-grid">
+    <div class="stat-card" id="stat-instances">
+        <div class="stat-label">
+            <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            Instances
+        </div>
+        <div class="stat-value" id="stat-vps-count">{{ vps_count }}</div>
+        <div class="stat-sub"><span id="stat-running-count">{{ running_count }}</span> running</div>
+    </div>
+    <div class="stat-card" id="stat-credits">
+        <div class="stat-label">
+            <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+            Credits
+        </div>
+        <div class="stat-value {% if low_credits %}c-amber{% else %}c-blue{% endif %}">{{ user.credits }}</div>
+        <div class="stat-sub">{% if low_credits %}<span style="color:var(--amber);">⚠ Low balance</span>{% else %}available{% endif %}</div>
+    </div>
+    <div class="stat-card" id="stat-nodes">
+        <div class="stat-label">
+            <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2"><circle cx="5" cy="6" r="2" fill="currentColor" stroke="none"/><circle cx="5" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="5" cy="18" r="2" fill="currentColor" stroke="none"/><path d="M9 6h10M9 12h10M9 18h10"/></svg>
+            Nodes
+        </div>
+        <div class="stat-value" id="stat-node-count">{{ node_stats|length }}</div>
+        <div class="stat-sub"><span id="stat-online-count">{{ node_stats|selectattr('status','eq','online')|list|length }}</span> online</div>
+    </div>
+    <div class="stat-card" id="stat-cost">
+        <div class="stat-label">
+            <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Est. monthly
+        </div>
+        <div class="stat-value c-green">{{ cost_preview }}<span style="font-size:13px;font-weight:500;color:var(--text-3);margin-left:2px;">cr</span></div>
+        <div class="stat-sub">default config</div>
+    </div>
+</div>
+
+<!-- Cluster status -->
+{% if node_stats %}
+<div style="margin-bottom:22px;">
+    <div class="section-hd">
+        <span class="section-title" style="display:flex;align-items:center;gap:7px;">
+            <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2"><circle cx="5" cy="6" r="2" fill="currentColor" stroke="none"/><circle cx="5" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="5" cy="18" r="2" fill="currentColor" stroke="none"/><path d="M9 6h10M9 12h10M9 18h10"/></svg>
+            Cluster
+        </span>
+        <span style="font-size:11px;display:flex;align-items:center;gap:6px;" class="text-muted mono">
+            {{ node_stats|length }} node{{ 's' if node_stats|length != 1 }}
+        </span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;" id="cluster-grid">
+        {% for node in node_stats %}
+        <div class="card" style="padding:14px 16px;" id="dash-node-{{ node.id }}">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                <div style="display:flex;align-items:center;gap:7px;">
+                    <span class="chip chip-incus">Incus</span>
+                    <span style="font-size:13px;font-weight:600;color:var(--text);">{{ node.name }}</span>
+                    {% if node.location and node.location != '—' %}
+                    <span class="text-muted" style="font-size:11px;">{{ node.location }}</span>
+                    {% endif %}
+                </div>
+                <span class="badge badge-{{ node.status }}" id="dash-node-status-{{ node.id }}"><span class="badge-dot"></span>{{ node.status }}</span>
+            </div>
+            {% if node.ram_total > 0 %}
+            <div>
+                <div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--text-3);margin-bottom:5px;">
+                    <span>RAM</span>
+                    <span class="mono" id="dash-node-ram-label-{{ node.id }}">{{ node.ram_used }}&#8202;/&#8202;{{ node.ram_total }} MB · {{ node.ram_pct }}%</span>
+                </div>
+                <div class="bar-track thick" style="border-radius:3px;">
+                    <div class="bar-fill {% if node.ram_pct > 85 %}bar-red{% elif node.ram_pct > 65 %}bar-amber{% else %}bar-blue{% endif %}" id="dash-node-ram-bar-{{ node.id }}" style="width:{{ [node.ram_pct,100]|min }}%"></div>
+                </div>
+            </div>
+            {% endif %}
+            <div style="font-size:10.5px;color:var(--text-3);margin-top:9px;display:flex;align-items:center;justify-content:space-between;" class="mono">
+                <span id="dash-node-vps-{{ node.id }}">{{ node.vps_count }} instance{{ 's' if node.vps_count != 1 }}</span>
+                <span id="dash-node-lastseen-{{ node.id }}" style="opacity:.7;"></span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Instances -->
+<div>
+    <div class="section-hd">
+        <span class="section-title" style="display:flex;align-items:center;gap:7px;">
+            <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            Your Instances
+        </span>
+        <span class="text-muted mono" style="font-size:11px;" id="instance-count-label">{{ vps_count }}</span>
+    </div>
+
+    <div id="instance-grid-wrap">
+    {% if vps_list %}
+    <div class="instance-grid" id="instance-grid">
+        {% for vps in vps_list %}
+        <div class="card card-hover instance-card" style="{% if vps.suspended %}opacity:0.55{% endif %}">
+            <div class="instance-card-top">
+                <div style="min-width:0;">
+                    <a href="/vps/{{ vps.name }}" class="instance-name" style="display:block;transition:color .12s;">{{ vps.display_name }}</a>
+                    <div class="instance-id">{{ vps.name }}</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+                    {% if vps.suspended %}<span class="badge badge-suspended"><span class="badge-dot"></span>suspended</span>{% endif %}
+                    <span class="badge badge-{{ vps.status }}"><span class="badge-dot"></span>{{ vps.status }}</span>
+                </div>
+            </div>
+            <div class="instance-card-body">
+                <div class="spec-row" style="margin-bottom:12px;">
+                    {% if vps.instance_type == 'vm' %}<span class="chip" style="background:var(--purple-dim);color:var(--purple);border:1px solid rgba(168,85,247,.2);font-size:10px;">VM</span>{% endif %}
+                    <span class="spec-chip">{{ vps.cpu }} vCPU</span>
+                    <span class="spec-chip">{{ vps.ram }}MB</span>
+                    <span class="spec-chip">{{ vps.disk_gb }}GB</span>
+                    <span class="spec-chip">{{ vps.os_image }}</span>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;">
+                    <span class="text-muted" style="font-size:11px;display:flex;align-items:center;gap:5px;">
+                        <svg width="10" height="10" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="2" fill="currentColor" stroke="none"/><path d="M9 12h10"/></svg>
+                        {{ vps.node }}
+                    </span>
+                    {% if vps.ipv4 and vps.ipv4 != '—' %}
+                    <span class="ip-mono" onclick="navigator.clipboard.writeText('{{ vps.ipv4 }}').then(()=>toast('IP copied','s',2000))" title="Click to copy">{{ vps.ipv4 }}</span>
+                    {% else %}
+                    <span class="text-muted" style="font-size:11.5px;">no IP</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="instance-card-foot">
+                <a href="/vps/{{ vps.name }}" class="btn btn-ghost btn-sm">
+                    <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M20 12c0 0-3.333 6-8 6s-8-6-8-6 3.333-6 8-6 8 6 8 6z"/></svg>
+                    Manage
+                </a>
+                <a href="/console/{{ vps.name }}" class="btn btn-ghost btn-sm" style="color:var(--green);border-color:rgba(34,197,94,.22);">
+                    <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6m8 14h8"/></svg>
+                    Console
+                </a>
+                {% if not vps.suspended %}
+                {% if vps.status == 'running' %}
+                <form method="post" action="/stop" style="display:inline;" onsubmit="submitQuickAction(this)">
+                    <input type="hidden" name="name" value="{{ vps.name }}">
+                    <button class="btn btn-ghost btn-sm" title="Stop" style="color:var(--amber);border-color:rgba(245,158,11,.22);">
+                        <svg width="11" height="11" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+                    </button>
+                </form>
+                <form method="post" action="/restart" style="display:inline;" onsubmit="submitQuickAction(this)">
+                    <input type="hidden" name="name" value="{{ vps.name }}">
+                    <button class="btn btn-ghost btn-sm" title="Restart">
+                        <svg width="11" height="11" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+                    </button>
+                </form>
+                {% else %}
+                <form method="post" action="/start" style="display:inline;" onsubmit="submitQuickAction(this)">
+                    <input type="hidden" name="name" value="{{ vps.name }}">
+                    <button class="btn btn-ghost btn-sm" title="Start" style="color:var(--green);border-color:rgba(34,197,94,.22);">
+                        <svg width="11" height="11" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                    </button>
+                </form>
+                {% endif %}
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="card" id="empty-state-card">
+        <div class="empty-state" style="padding:64px 24px;">
+            <div class="empty-icon" style="width:52px;height:52px;border-radius:var(--r-xl);background:var(--blue-dim);border-color:color-mix(in srgb,var(--blue) 20%,transparent);">
+                <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="var(--blue-2)" stroke-width="1.5"><path d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"/></svg>
+            </div>
+            <div class="empty-title" style="font-size:16px;margin-bottom:6px;">No instances yet</div>
+            <div class="empty-desc" style="font-size:13px;line-height:1.6;">Deploy your first VPS instance to get started with cloud computing on your cluster.</div>
+            <button onclick="openDeployModal()" class="btn btn-primary">
+                <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                Deploy your first VPS
+            </button>
+        </div>
+    </div>
+    {% endif %}
+    </div>
+</div>
+
+<!-- Deploy Modal -->
+<div id="deploy-modal" class="modal-backdrop" onclick="if(event.target===this)closeDeployModal()">
+    <div class="modal modal-lg" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span class="modal-title" style="display:flex;align-items:center;gap:8px;">
+                <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                Deploy New Instance
+            </span>
+            <button class="modal-close" onclick="closeDeployModal()">
+                <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <form method="post" action="/create" id="deploy-form">
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
+
+                <!-- Deploy mode tabs -->
+                <div style="display:flex;background:var(--bg-3);border:1px solid var(--border);border-radius:var(--r);padding:3px;gap:2px;">
+                    <button type="button" id="mode-plan-btn" onclick="setDeployMode('plan')"
+                            style="flex:1;padding:7px;border-radius:4px;border:none;font-size:12px;font-weight:600;cursor:pointer;transition:all .14s;background:var(--blue);color:white;display:flex;align-items:center;justify-content:center;gap:5px;">
+                        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M9 7h6M9 11h6M9 15h4"/></svg>
+                        Use Plan
+                    </button>
+                    {% if user.is_admin %}
+                    <button type="button" id="mode-custom-btn" onclick="setDeployMode('custom')"
+                            style="flex:1;padding:7px;border-radius:4px;border:none;font-size:12px;font-weight:600;cursor:pointer;transition:all .14s;background:transparent;color:var(--text-3);display:flex;align-items:center;justify-content:center;gap:5px;">
+                        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+                        Custom
+                    </button>
+                    {% endif %}
+                </div>
+
+                <!-- Deploy progress bar (hidden until submit) -->
+                <div id="deploy-progress-wrap" style="display:none;background:var(--bg-3);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                        <span id="deploy-progress-msg" style="font-size:12.5px;font-weight:600;color:var(--text);">Preparing…</span>
+                        <span id="deploy-progress-pct" style="font-size:11px;color:var(--text-3);font-family:'Geist Mono',monospace;">0%</span>
+                    </div>
+                    <div class="bar-track thick" style="border-radius:3px;">
+                        <div class="bar-fill bar-blue" id="deploy-progress-bar" style="width:0%;transition:width .6s ease;"></div>
+                    </div>
+                    <div id="deploy-progress-steps" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;"></div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">
+                        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2" style="display:inline;vertical-align:middle;margin-right:3px;"><path d="M9 17H4a2 2 0 01-2-2V5a2 2 0 012-2h16a2 2 0 012 2v10a2 2 0 01-2 2h-5l-3 4-3-4z"/></svg>
+                        Instance Name
+                    </label>
+                    <input type="text" name="name" placeholder="my-server" pattern="[a-z0-9\-]+" required class="form-input" autocomplete="off">
+                    <div class="form-hint">Lowercase letters, numbers, hyphens only</div>
+                </div>
+
+                <!-- Plan selector -->
+                <div id="plan-section">
+                    <label class="form-label">
+                        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2" style="display:inline;vertical-align:middle;margin-right:3px;"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M9 7h6M9 11h6M9 15h4"/></svg>
+                        Plan
+                    </label>
+                    {% if plans %}
+                    <div style="display:flex;flex-direction:column;gap:6px;" id="plan-list">
+                        {% for plan in plans %}
+                        <label class="plan-option" id="plan-opt-{{ plan.id }}">
+                            <input type="radio" name="plan_id" value="{{ plan.id }}" style="display:none;"
+                                   onchange="onPlanSelect({{ plan.credits_cost }},{{ plan.node_id or 'null' }})">
+                            <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+                                <div>
+                                    <div style="font-size:13px;font-weight:700;color:var(--text);">{{ plan.name }}</div>
+                                    <div class="mono" style="font-size:11px;color:var(--text-3);margin-top:2px;">{{ plan.display_ram }} · {{ plan.cpu }} vCPU · {{ plan.disk_gb }}GB{% if plan.location %} · {{ plan.location }}{% endif %}</div>
+                                </div>
+                                <div style="text-align:right;flex-shrink:0;margin-left:12px;">
+                                    <div class="mono" style="font-size:16px;font-weight:700;color:var(--blue-2);" id="plan-price-{{ plan.id }}">{{ plan.credits_cost }}cr</div>
+                                </div>
+                            </div>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div style="padding:16px;background:var(--bg-3);border:1px solid var(--border);border-radius:var(--r);font-size:12.5px;color:var(--text-3);text-align:center;">
+                        <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="display:block;margin:0 auto 8px;opacity:.5;"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M9 7h6M9 11h6M9 15h4"/></svg>
+                        No plans available. Ask your admin to create plans.
+                    </div>
+                    {% endif %}
+
+                    <!-- CT / VM type selection for plan mode -->
+                    <div class="form-group" style="margin-top:12px;">
+                        <label class="form-label">Instance Type</label>
+                        <div style="display:flex;gap:8px;">
+                            <label style="flex:1;display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:var(--r);border:1px solid var(--blue);background:var(--blue-dim);cursor:pointer;transition:border-color .12s,background .12s;" id="plan-type-ct-wrap">
+                                <input type="radio" name="instance_type" value="container" checked
+                                       onchange="onPlanTypeChange()" style="accent-color:var(--blue);">
+                                <span style="font-size:13px;font-weight:500;">Container</span>
+                                <span style="font-size:11px;color:var(--text-3);margin-left:auto;">lightweight</span>
+                            </label>
+                            <label style="flex:1;display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:var(--r);border:1px solid var(--border);background:var(--bg-3);cursor:pointer;transition:border-color .12s,background .12s;" id="plan-type-vm-wrap">
+                                <input type="radio" name="instance_type" value="vm"
+                                       onchange="onPlanTypeChange()" style="accent-color:var(--blue);">
+                                <span style="font-size:13px;font-weight:500;">Virtual Machine</span>
+                                <span style="font-size:11px;color:var(--amber);margin-left:auto;">+{{ vm_surcharge }}cr</span>
+                            </label>
+                        </div>
+                        <div class="form-hint" id="vm-fee-hint" style="display:none;color:var(--amber);">
+                            ⚡ VM adds a flat +{{ vm_surcharge }} credit fee on top of the plan price.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Custom resource section -->
+                <div id="custom-section" style="display:none;">
+                    <div class="form-group" style="margin-bottom:10px;">
+                        <label class="form-label">Instance Type</label>
+                        <div style="display:flex;gap:8px;">
+                            <label style="flex:1;display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:var(--r);border:1px solid var(--border);background:var(--bg-3);cursor:pointer;transition:border-color .12s,background .12s;" id="type-container-wrap">
+                                <input type="radio" name="instance_type" value="container" checked
+                                       onchange="onTypeChange()" style="accent-color:var(--blue);">
+                                <span style="font-size:13px;font-weight:500;">Container</span>
+                                <span style="font-size:11px;color:var(--text-3);margin-left:auto;">lightweight</span>
+                            </label>
+                            <label style="flex:1;display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:var(--r);border:1px solid var(--border);background:var(--bg-3);cursor:pointer;transition:border-color .12s,background .12s;" id="type-vm-wrap">
+                                <input type="radio" name="instance_type" value="vm"
+                                       onchange="onTypeChange()" style="accent-color:var(--blue);">
+                                <span style="font-size:13px;font-weight:500;">Virtual Machine</span>
+                                <span style="font-size:11px;color:var(--text-3);margin-left:auto;">full VM</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-grid form-grid-2">
+                        <div class="form-group">
+                            <label class="form-label">RAM (MB)</label>
+                            <input type="number" name="ram" value="1024" min="128" max="131072" step="128"
+                                   class="form-input" onchange="updateCost()" placeholder="e.g. 2048">
+                            <div class="form-hint">Minimum 128 MB</div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">CPU Cores</label>
+                            <input type="number" name="cpu" value="1" min="1" max="64"
+                                   class="form-input" onchange="updateCost()" placeholder="e.g. 2">
+                            <div class="form-hint">1–64 vCPUs</div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Disk (GB)</label>
+                            <input type="number" name="disk_gb" value="20" min="5" max="2000"
+                                   class="form-input" onchange="updateCost()" placeholder="e.g. 40">
+                            <div class="form-hint">Minimum 5 GB</div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">OS Image</label>
+                            <select name="os_image" class="form-input">
+                                <option value="ubuntu/22.04">Ubuntu 22.04 LTS</option>
+                                <option value="ubuntu/24.04">Ubuntu 24.04 LTS</option>
+                                <option value="ubuntu/20.04">Ubuntu 20.04 LTS</option>
+                                <option value="debian/12">Debian 12</option>
+                                <option value="debian/11">Debian 11</option>
+                                <option value="alpine/3.19">Alpine 3.19</option>
+                                <option value="centos/9-Stream">CentOS Stream 9</option>
+                                <option value="fedora/39">Fedora 39</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- OS Image for plan mode -->
+                <div id="plan-os-section" style="display:none;">
+                    <div class="form-group">
+                        <label class="form-label">OS Image</label>
+                        <select name="plan_os_image" class="form-input">
+                            <option value="ubuntu/22.04">Ubuntu 22.04 LTS</option>
+                            <option value="ubuntu/24.04">Ubuntu 24.04 LTS</option>
+                            <option value="debian/12">Debian 12</option>
+                            <option value="alpine/3.19">Alpine 3.19</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Node selection -->
+                <div class="form-group" id="node-section">
+                    <label class="form-label">
+                        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2" style="display:inline;vertical-align:middle;margin-right:3px;"><circle cx="5" cy="12" r="2" fill="currentColor" stroke="none"/><path d="M9 12h10"/></svg>
+                        Node / Location
+                    </label>
+                    <select name="node_id" class="form-input" id="node-select">
+                        <option value="">🤖 Auto-select best available node</option>
+                        {% for node in nodes %}
+                        <option value="{{ node.id }}">{{ node.display_name or node.name }}{% if node.location %} — {{ node.location }}{% endif %} ({{ node.status }})</option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-hint" id="node-hint">Auto mode picks the node with the most free RAM.</div>
+                </div>
+
+                <!-- Cost preview -->
+                <div style="background:var(--bg-3);border:1px solid var(--border);border-radius:var(--r-lg);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;">
+                    <div>
+                        <div style="font-size:10.5px;color:var(--text-3);text-transform:uppercase;letter-spacing:.09em;font-weight:600;margin-bottom:4px;">Estimated Cost</div>
+                        <div style="font-size:11px;color:var(--text-3);">Balance: <span class="text-blue mono" style="font-weight:600;">{{ user.credits }}cr</span></div>
+                    </div>
+                    <div style="text-align:right;">
+                        <span id="cost-display" class="mono" style="font-size:24px;font-weight:700;color:var(--blue-2);">{{ cost_preview }}</span>
+                        <span style="font-size:12.5px;color:var(--text-3);margin-left:4px;">credits</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="justify-content:stretch;">
+                <button type="button" class="btn btn-ghost" onclick="closeDeployModal()" style="flex:1;">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="deploy-btn" style="flex:2;">
+                    <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                    Launch Instance
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+let deployMode = 'plan';
+let selectedPlanCost = 0;
+const VM_SURCHARGE = {{ vm_surcharge }};
+
+// ── Deploy Modal ──────────────────────────────────────────────────────────────
+function openDeployModal()  { document.getElementById('deploy-modal').classList.add('open'); }
+function closeDeployModal() { document.getElementById('deploy-modal').classList.remove('open'); }
+
+function setDeployMode(mode) {
+    deployMode = mode;
+    const isPlan = mode === 'plan';
+    document.getElementById('plan-section').style.display    = isPlan ? '' : 'none';
+    document.getElementById('plan-os-section').style.display = isPlan ? '' : 'none';
+    document.getElementById('custom-section').style.display  = isPlan ? 'none' : '';
+    const planBtn   = document.getElementById('mode-plan-btn');
+    const customBtn = document.getElementById('mode-custom-btn');
+    planBtn.style.background = isPlan ? 'var(--blue)' : 'transparent';
+    planBtn.style.color      = isPlan ? 'white' : 'var(--text-3)';
+    if (customBtn) {
+        customBtn.style.background = isPlan ? 'transparent' : 'var(--blue)';
+        customBtn.style.color      = isPlan ? 'var(--text-3)' : 'white';
+    }
+    document.querySelectorAll('#deploy-form input, #deploy-form select').forEach(el => { el.disabled = false; });
+    if (!isPlan) updateCost(); else updatePlanCostDisplay();
+}
+
+function onPlanTypeChange() {
+    const isVM = document.querySelector('input[name="instance_type"]:checked')?.value === 'vm';
+    document.getElementById('plan-type-ct-wrap').style.borderColor = isVM ? 'var(--border)' : 'var(--blue)';
+    document.getElementById('plan-type-ct-wrap').style.background  = isVM ? 'var(--bg-3)' : 'var(--blue-dim)';
+    document.getElementById('plan-type-vm-wrap').style.borderColor = isVM ? 'var(--blue)' : 'var(--border)';
+    document.getElementById('plan-type-vm-wrap').style.background  = isVM ? 'var(--blue-dim)' : 'var(--bg-3)';
+    const hint = document.getElementById('vm-fee-hint');
+    if (hint) hint.style.display = isVM ? '' : 'none';
+    updatePlanCostDisplay();
+}
+
+function onTypeChange() {
+    const isVM = document.querySelector('input[name="instance_type"]:checked')?.value === 'vm';
+    const cw = document.getElementById('type-container-wrap');
+    const vw = document.getElementById('type-vm-wrap');
+    if (cw) { cw.style.borderColor = isVM ? 'var(--border)' : 'var(--blue)'; cw.style.background = isVM ? 'var(--bg-3)' : 'var(--blue-dim)'; }
+    if (vw) { vw.style.borderColor = isVM ? 'var(--blue)' : 'var(--border)'; vw.style.background = isVM ? 'var(--blue-dim)' : 'var(--bg-3)'; }
+    updateCost();
+}
+
+function updatePlanCostDisplay() {
+    if (deployMode !== 'plan') return;
+    const isVM  = document.querySelector('input[name="instance_type"]:checked')?.value === 'vm';
+    const total = selectedPlanCost + (isVM ? VM_SURCHARGE : 0);
+    document.getElementById('cost-display').textContent = total || '—';
+}
+
+function onPlanSelect(baseCost, nodeId) {
+    selectedPlanCost = baseCost;
+    updatePlanCostDisplay();
+    const nodeSelect = document.getElementById('node-select');
+    if (nodeId) {
+        for (let opt of nodeSelect.options) { if (opt.value == nodeId) { opt.selected = true; break; } }
+        document.getElementById('node-hint').textContent = 'Plan recommends this node. You can override.';
+    } else {
+        nodeSelect.value = '';
+        document.getElementById('node-hint').textContent = 'Auto mode picks the node with the most free RAM.';
+    }
+    document.querySelectorAll('.plan-option').forEach(el => el.classList.remove('selected'));
+    event.currentTarget.closest('.plan-option').classList.add('selected');
+}
+
+async function updateCost() {
+    if (deployMode === 'plan') { updatePlanCostDisplay(); return; }
+    const ram  = parseInt(document.querySelector('[name=ram]')?.value) || 1024;
+    const cpu  = parseInt(document.querySelector('[name=cpu]')?.value) || 1;
+    const disk = parseInt(document.querySelector('[name=disk_gb]')?.value) || 20;
+    const isVM = document.querySelector('input[name="instance_type"]:checked')?.value === 'vm';
+    if (ram < 128 || cpu < 1) return;
+    try {
+        const r = await fetch(`/api/cost?ram=${ram}&cpu=${cpu}&disk_gb=${disk}`);
+        const d = await r.json();
+        document.getElementById('cost-display').textContent = d.cost + (isVM ? VM_SURCHARGE : 0);
+    } catch(e) {}
+}
+
+// ── Deploy feedback with progress steps ──────────────────────────────────────
+const DEPLOY_STEPS = [
+    { pct: 10, msg: 'Validating configuration…' },
+    { pct: 30, msg: 'Provisioning storage…' },
+    { pct: 55, msg: 'Configuring network…' },
+    { pct: 78, msg: 'Starting instance…' },
+    { pct: 92, msg: 'Finalizing setup…' },
+];
+const hasPlansDefined = {{ 'true' if plans else 'false' }};
+
+document.getElementById('deploy-form').addEventListener('submit', function(e) {
+    if (deployMode === 'plan') {
+        const sel = document.querySelector('input[name="plan_id"]:checked');
+        if (!sel && hasPlansDefined) { e.preventDefault(); toast('Please select a plan before launching.','w'); return; }
+        const planOS = document.querySelector('[name="plan_os_image"]');
+        if (planOS) {
+            this.querySelectorAll('input[type="hidden"][name="os_image"]').forEach(el => el.remove());
+            const h = document.createElement('input');
+            h.type = 'hidden'; h.name = 'os_image'; h.value = planOS.value;
+            this.appendChild(h);
+        }
+        document.querySelectorAll('#custom-section input, #custom-section select').forEach(el => { el.disabled = true; });
+        document.querySelectorAll('input[name="plan_id"]').forEach(el => { if (!el.checked) el.disabled = true; });
+    } else {
+        const ram  = parseInt(document.querySelector('[name=ram]')?.value);
+        const cpu  = parseInt(document.querySelector('[name=cpu]')?.value);
+        const disk = parseInt(document.querySelector('[name=disk_gb]')?.value);
+        if (!ram || ram < 128 || !cpu || cpu < 1 || !disk || disk < 5) {
+            e.preventDefault();
+            toast('Please enter valid RAM (≥128 MB), CPU (≥1), and Disk (≥5 GB).','w');
+            return;
+        }
+        document.querySelectorAll('input[name="plan_id"]').forEach(el => { el.disabled = true; });
+        document.querySelectorAll('[name="plan_os_image"]').forEach(el => { el.disabled = true; });
+        document.querySelectorAll('#plan-section input[name="instance_type"]').forEach(el => { el.disabled = true; });
+    }
+
+    // Show progress UI
+    document.getElementById('deploy-progress-wrap').style.display = '';
+    const btn = document.getElementById('deploy-btn');
+    btn.disabled = true;
+
+    let stepIdx = 0;
+    const progressBar = document.getElementById('deploy-progress-bar');
+    const progressMsg = document.getElementById('deploy-progress-msg');
+    const progressPct = document.getElementById('deploy-progress-pct');
+    const stepsEl     = document.getElementById('deploy-progress-steps');
+
+    function advanceStep() {
+        if (stepIdx >= DEPLOY_STEPS.length) return;
+        const step = DEPLOY_STEPS[stepIdx];
+        progressBar.style.width = step.pct + '%';
+        progressMsg.textContent = step.msg;
+        progressPct.textContent = step.pct + '%';
+        // Add step badge
+        const badge = document.createElement('span');
+        badge.className = 'badge badge-building';
+        badge.innerHTML = '<span class="badge-dot"></span>' + step.msg.replace('…','');
+        stepsEl.appendChild(badge);
+        stepIdx++;
+        if (stepIdx < DEPLOY_STEPS.length) setTimeout(advanceStep, 2800 + Math.random()*600);
+    }
+    advanceStep();
+
+    btn.innerHTML = '<svg class="spin" width="13" height="13" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,.2)" stroke-width="3"/><path d="M12 2a10 10 0 0110 10" stroke="white" stroke-width="3" stroke-linecap="round"/></svg> Creating…';
+});
+
+// Quick action (start/stop/restart) spinner
+function submitQuickAction(form) {
+    const btn = form.querySelector('button');
+    if (btn) { btn.disabled = true; btn.style.opacity = '.5'; }
+}
+
+// ── Live auto-refresh ─────────────────────────────────────────────────────────
+let _lastRefresh = Date.now();
+let _refreshTimer = null;
+
+function updateRefreshLabel() {
+    const s = Math.round((Date.now() - _lastRefresh) / 1000);
+    const el = document.getElementById('refresh-ago');
+    if (el) el.textContent = s < 5 ? 'just now' : s < 60 ? s + 's ago' : Math.round(s/60) + 'm ago';
+}
+setInterval(updateRefreshLabel, 2000);
+
+async function doLiveRefresh(silent) {
+    try {
+        const r = await fetch(window.location.pathname + '?_refresh=1', { cache: 'no-store' });
+        if (!r.ok) return;
+        const html = await r.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+
+        // Swap instance grid
+        const newGrid = doc.getElementById('instance-grid');
+        const oldWrap = document.getElementById('instance-grid-wrap');
+        if (newGrid && oldWrap) {
+            oldWrap.innerHTML = newGrid.outerHTML;
+            oldWrap.firstElementChild && oldWrap.firstElementChild.classList.add('refreshing');
+        }
+
+        // Swap cluster nodes
+        const newCluster = doc.getElementById('cluster-grid');
+        const oldCluster = document.getElementById('cluster-grid');
+        if (newCluster && oldCluster) {
+            oldCluster.innerHTML = newCluster.innerHTML;
+            oldCluster.classList.add('refreshing');
+        }
+
+        // Update stat counters
+        const patchStat = (id) => {
+            const nel = doc.getElementById(id);
+            const oel = document.getElementById(id);
+            if (nel && oel && nel.textContent !== oel.textContent) {
+                oel.textContent = nel.textContent;
+                oel.style.transition = 'opacity .2s';
+                oel.style.opacity = '0.3';
+                setTimeout(() => { oel.style.opacity = '1'; }, 50);
+            }
+        };
+        ['stat-vps-count','stat-running-count','stat-node-count','stat-online-count'].forEach(patchStat);
+
+        _lastRefresh = Date.now();
+        if (!silent) updateRefreshLabel();
+    } catch(e) {}
+}
+
+// Auto-refresh every 10s
+_refreshTimer = setInterval(() => doLiveRefresh(true), 10000);
+
+function manualRefresh() {
+    const icon = document.getElementById('refresh-icon');
+    const btn  = document.getElementById('manual-refresh-btn');
+    if (icon) icon.style.animation = 'spin 0.7s linear';
+    if (btn)  btn.disabled = true;
+    doLiveRefresh(false).finally(() => {
+        setTimeout(() => {
+            if (icon) icon.style.animation = '';
+            if (btn)  btn.disabled = false;
+        }, 600);
+    });
+}
+
+// init
+setDeployMode('plan');
+onPlanTypeChange();
+</script>
+<style>
+.plan-option {
+    display:flex;align-items:center;gap:12px;
+    padding:11px 14px;border-radius:var(--r);
+    border:1px solid var(--border);cursor:pointer;
+    background:var(--bg-3);transition:border-color .14s,background .14s;
+}
+.plan-option:hover { border-color:var(--border-2);background:var(--bg-4); }
+.plan-option.selected { border-color:var(--blue);background:var(--blue-dim); }
+#deploy-progress-bar { background: linear-gradient(90deg, var(--blue), color-mix(in srgb, var(--blue) 70%, var(--green))); }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+{% endblock %}
