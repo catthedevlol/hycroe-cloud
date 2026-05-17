@@ -1,0 +1,63 @@
+version: "3.9"
+
+services:
+  panel:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://hycroe:${DB_PASSWORD:-changeme}@db:5432/hycroe
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-change-me-to-a-long-random-string}
+      - BASE_URL=${BASE_URL:-http://localhost:8000}
+      - SECURE_COOKIES=${SECURE_COOKIES:-false}
+      - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID:-}
+      - DISCORD_CLIENT_SECRET=${DISCORD_CLIENT_SECRET:-}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+      - STRIPE_PUBLIC_KEY=${STRIPE_PUBLIC_KEY:-}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
+    volumes:
+      # Mount incus socket if running on a host with incus
+      - /var/lib/incus/unix.socket:/var/lib/incus/unix.socket:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - hycroe
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hycroe
+      POSTGRES_USER: hycroe
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hycroe"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - hycroe
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redisdata:/data
+    networks:
+      - hycroe
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  hycroe:
+    driver: bridge
